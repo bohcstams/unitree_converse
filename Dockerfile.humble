@@ -1,0 +1,44 @@
+FROM ros:humble-ros-base
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Core build tools, networking and audio libraries
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    python3-pip \
+    python3-colcon-common-extensions \
+    ros-humble-rmw-cyclonedds-cpp \
+    ros-humble-rosidl-generator-dds-idl \
+    libyaml-cpp-dev \
+    sox \
+    libsox-fmt-all \
+    portaudio19-dev \
+    alsa-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip to fix the Ubuntu 22.04 resolvelib AssertionError bug
+RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
+
+# Python audio, STT, and TTS dependencies
+RUN pip3 install --no-cache-dir \
+    requests \
+    openwakeword \
+    faster-whisper \
+    sounddevice \
+    soundfile \
+    tqdm \
+    filelock \
+    piper-tts
+
+# Pre-cache faster-whisper base model (CPU int8) so it doesn't download at runtime
+RUN python3 -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
+
+# Download Hungarian Piper TTS voice model and its config
+RUN mkdir -p /root/.local/share/piper && cd /root/.local/share/piper && \
+    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/berta/medium/hu_HU-berta-medium.onnx && \
+    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/berta/medium/hu_HU-berta-medium.onnx.json
+
+WORKDIR /root/ros2_ws

@@ -1,3 +1,24 @@
+# Docker files
+.dockerignore
+
+# ROS 2 build directories
 build/
 install/
 log/
+
+# Python cache & virtualenvs
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+
+# Audio test dumps & temporary files
+*.wav
+*.mp3
+/tmp/
+
+# Model checkpoints/caches (if downloaded locally)
+*.onnx
+*.onnx.json
+.cache/
