@@ -33,7 +33,7 @@ class TTSNode(Node):
         self.piper_binary = self.get_parameter('piper_binary').get_parameter_value().string_value
 
         if self.output_device == -1:
-            self.output_device = None
+            self.output_device = self._resolve_default_output()
         self.continuous_mode = self.get_parameter('continuous_mode').get_parameter_value().bool_value
 
         self.voice = None
@@ -140,6 +140,8 @@ class TTSNode(Node):
 
         audio = np.concatenate(chunks).astype(np.float32)
         audio = self._resample(audio, native_sr, self.output_sample_rate)
+        if audio.ndim == 1:
+            audio = np.column_stack((audio, audio))
         sd.play(audio, self.output_sample_rate, device=self.output_device)
         sd.wait()
         self.get_logger().info('Playback complete')
@@ -169,6 +171,36 @@ class TTSNode(Node):
         msg = String()
         msg.data = status
         self.status_pub.publish(msg)
+
+    def _resolve_default_output(self):
+        try:
+            import sounddevice as sd
+            devices = sd.query_devices()
+            
+            # 1. First priority: look for onboard analog / ALC speakers
+            for idx, dev in enumerate(devices):
+                name = dev.get('name', '').lower()
+                max_out = dev.get('max_output_channels', 0)
+                if max_out > 0 and ('alc' in name or 'analog' in name or 'speaker' in name):
+                    self.get_logger().info(f'Auto-selected audio output: [{idx}] {dev["name"]}')
+                    return idx
+
+            # 2. Second priority: system default output if it has output channels
+            default_out = sd.default.device[1]
+            if default_out is not None and default_out >= 0:
+                if devices[default_out].get('max_output_channels', 0) > 0:
+                    self.get_logger().info(f'Using system default audio output: [{default_out}] {devices[default_out]["name"]}')
+                    return default_out
+
+            # 3. Fallback: first available device with output channels > 0
+            for idx, dev in enumerate(devices):
+                if dev.get('max_output_channels', 0) > 0 and 'hdmi' not in dev.get('name', '').lower():
+                    self.get_logger().info(f'Fallback audio output: [{idx}] {dev["name"]}')
+                    return idx
+        except Exception as e:
+            self.get_logger().warn(f'Failed to auto-detect audio device: {e}')
+
+        return None
 
 
 def main(args=None):
