@@ -1,0 +1,65 @@
+FROM ros:foxy-ros-base
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Core build tools, networking, DDS, and audio libraries
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    wget \
+    python3-pip \
+    python3-colcon-common-extensions \
+    ros-foxy-rmw-cyclonedds-cpp \
+    libyaml-cpp-dev \
+    sox \
+    libsox-fmt-all \
+    portaudio19-dev \
+    alsa-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip and packaging tools
+RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
+
+# Python audio, STT, and LLM dependencies
+RUN pip3 install --no-cache-dir \
+    requests \
+    openwakeword \
+    faster-whisper \
+    sounddevice \
+    soundfile \
+    tqdm \
+    filelock \
+    rich \
+    prompt_toolkit
+
+# Install Piper standalone binary (supports aarch64/Jetson and x86_64)
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "arm64" ]; then PIPER_ARCH="aarch64"; else PIPER_ARCH="x86_64"; fi && \
+    curl -L -o piper.tar.gz https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_${PIPER_ARCH}.tar.gz && \
+    tar -xzf piper.tar.gz -C /tmp && \
+    cp /tmp/piper/piper /usr/local/bin/piper && \
+    cp /tmp/piper/lib* /usr/local/lib/ 2>/dev/null || true && \
+    ldconfig && \
+    rm -rf piper.tar.gz /tmp/piper && \
+    (pip3 install --no-cache-dir piper-tts || true)
+
+# Pre-cache faster-whisper base model (CPU int8) so it doesn't download at runtime
+RUN python3 -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
+
+# Download English Piper TTS voice model and config (en_US-lessac-medium)
+# Symlink to /home/unitree/.local/share/piper so real-robot config paths work seamlessly
+RUN mkdir -p /root/.local/share/piper && cd /root/.local/share/piper && \
+    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx && \
+    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json && \
+    mkdir -p /home/unitree/.local/share && \
+    ln -s /root/.local/share/piper /home/unitree/.local/share/piper
+
+# Pre-build Unitree ROS2 messages (unitree_go, unitree_api, unitree_hg)
+RUN mkdir -p /root/unitree_ros2_ws/src && cd /root/unitree_ros2_ws/src && \
+    git clone --depth 1 https://github.com/unitreerobotics/unitree_ros2.git && \
+    cd /root/unitree_ros2_ws && \
+    /bin/bash -c "source /opt/ros/foxy/setup.bash && colcon build --packages-select unitree_go unitree_api unitree_hg"
+
+WORKDIR /root/ros2_ws

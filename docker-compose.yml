@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  unitree_converse:
+    build:
+      context: .
+      dockerfile: Dockerfile.foxy
+    container_name: unitree_converse
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    privileged: true
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - CYCLONEDDS_URI=/home/unitree/cyclonedds_ws/cyclonedds.xml
+      - LLM_API_MODEL=llama3:8b
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Mount codebase into the ROS2 workspace
+      - .:/root/ros2_ws/src/unitree_converse
+      # Shared memory for CycloneDDS
+      - /dev/shm:/dev/shm
+      # Unitree SDK2 for g1_piper_tts audio playback binary
+      - /home/unitree/unitree_sdk2_latest:/home/unitree/unitree_sdk2_latest:ro
+      # CycloneDDS configuration from host (if available)
+      - /home/unitree/cyclonedds_ws:/home/unitree/cyclonedds_ws:ro
+    command: >
+      bash -c "
+        source /opt/ros/foxy/setup.bash &&
+        if [ -f /root/unitree_ros2_ws/install/setup.bash ]; then
+          source /root/unitree_ros2_ws/install/setup.bash;
+        fi &&
+        if [ -f /home/unitree/cyclonedds_ws/install/setup.bash ]; then
+          source /home/unitree/cyclonedds_ws/install/setup.bash;
+        fi &&
+        cd /root/ros2_ws &&
+        colcon build --symlink-install &&
+        source install/setup.bash &&
+        echo 'Starting unitree_converse voice pipeline on robot...' &&
+        ros2 launch g1_voice voice_real.launch.py
+      "

@@ -36,9 +36,9 @@ RUN pip3 install --no-cache-dir \
 # Pre-cache faster-whisper base model (CPU int8) so it doesn't download at runtime
 RUN python3 -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
 
-# Download Hungarian Piper TTS voice model and its config
+# Download English Piper TTS voice model and its config
 RUN mkdir -p /root/.local/share/piper && cd /root/.local/share/piper && \
-    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/berta/medium/hu_HU-berta-medium.onnx && \
-    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/berta/medium/hu_HU-berta-medium.onnx.json
+    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx && \
+    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
 
 WORKDIR /root/ros2_ws
