@@ -25,6 +25,8 @@ services:
       - /home/unitree/cyclonedds_ws:/home/unitree/cyclonedds_ws:ro
     command: >
       bash -c "
+        export LANG=C.UTF-8 &&
+        export LC_ALL=C.UTF-8 &&
         source /opt/ros/foxy/setup.bash &&
         if [ -f /root/unitree_ros2_ws/install/setup.bash ]; then
           source /root/unitree_ros2_ws/install/setup.bash;
@@ -32,11 +34,18 @@ services:
         if [ -f /home/unitree/cyclonedds_ws/install/setup.bash ]; then
           source /home/unitree/cyclonedds_ws/install/setup.bash;
         fi &&
-        if [ ! -f /root/.local/share/piper/hu_HU-imre-medium.onnx ]; then
+        if [ -d /usr/lib/aarch64-linux-gnu/espeak-ng-data ] && [ ! -d /usr/share/espeak-ng-data ]; then
+          ln -sfn /usr/lib/aarch64-linux-gnu/espeak-ng-data /usr/share/espeak-ng-data;
+        fi &&
+        mkdir -p /root/.local/share/piper &&
+        mkdir -p /home/unitree/.local/share &&
+        if [ ! -e /home/unitree/.local/share/piper ]; then
+          ln -sfn /root/.local/share/piper /home/unitree/.local/share/piper;
+        fi &&
+        if [ ! -s /root/.local/share/piper/hu_HU-imre-medium.onnx ]; then
           echo 'Downloading Hungarian Piper voice (hu_HU-imre-medium)...' &&
-          mkdir -p /root/.local/share/piper &&
-          curl -L -o /root/.local/share/piper/hu_HU-imre-medium.onnx https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/imre/medium/hu_HU-imre-medium.onnx &&
-          curl -L -o /root/.local/share/piper/hu_HU-imre-medium.onnx.json https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/imre/medium/hu_HU-imre-medium.onnx.json;
+          curl -L -f -o /root/.local/share/piper/hu_HU-imre-medium.onnx https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/imre/medium/hu_HU-imre-medium.onnx &&
+          curl -L -f -o /root/.local/share/piper/hu_HU-imre-medium.onnx.json https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/imre/medium/hu_HU-imre-medium.onnx.json;
         fi &&
         echo 'Checking faster-whisper small model...' &&
         python3 -c \"from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8')\" &&

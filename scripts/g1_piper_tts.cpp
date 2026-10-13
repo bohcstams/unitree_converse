@@ -43,6 +43,12 @@ int main(int argc, char const *argv[]) {
     model_path = "/root/.local/share/piper/" + filename;
   }
 
+  std::ifstream final_check(model_path);
+  if (!final_check.good()) {
+    std::cerr << "[g1_piper_tts] Voice model not found: " << model_path << std::endl;
+    return 1;
+  }
+
   std::string safe_text;
   for (char c : text) {
     if (c == '"' || c == '\\' || c == '`' || c == '$') {
@@ -51,10 +57,10 @@ int main(int argc, char const *argv[]) {
     safe_text += c;
   }
 
-  std::string piper_cmd = "echo \"" + safe_text + "\" | /usr/local/bin/piper --model \"" + model_path + "\" --output_file /tmp/tts_raw.wav > /dev/null 2>&1";
+  std::string piper_cmd = "echo \"" + safe_text + "\" | /usr/local/bin/piper --model \"" + model_path + "\" --output_file /tmp/tts_raw.wav";
   int piper_ret = std::system(piper_cmd.c_str());
   if (piper_ret != 0) {
-    std::cerr << "[g1_piper_tts] Piper synthesis failed." << std::endl;
+    std::cerr << "[g1_piper_tts] Piper synthesis failed (code: " << piper_ret << ")." << std::endl;
     return 1;
   }
 
