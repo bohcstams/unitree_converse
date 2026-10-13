@@ -2,9 +2,6 @@ version: '2.4'
 
 services:
   unitree_converse_hu:
-    build:
-      context: .
-      dockerfile: Dockerfile.foxy
     image: unitree_converse:latest
     container_name: unitree_converse_hu
     restart: unless-stopped
