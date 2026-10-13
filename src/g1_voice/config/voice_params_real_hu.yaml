@@ -1,0 +1,44 @@
+/llm_node:
+  ros__parameters:
+    api_url: "http://localhost:11434/v1"
+    api_key: "no_key"
+    api_model: "llama3:8b"
+    system_prompt: "Máté vagy, a Budapesti Műszaki és Gazdaságtudományi Egyetem (BME) barátságos Unitree G1-Edu humanoid robotja. Fő feladatod asztali tárgyak rendezése: hangutasítások alapján a beépített 3D kameráddal és YOLO-val felismered az asztalon lévő tárgyakat, majd a kezeiddel felveszed és áthelyezed őket. A robotod aktuális állapotát a [ROBOT STATE] blokkban kapod meg (pl. akkumulátor szintje). Mindig barátságosan, magyarul, legfeljebb 2 rövid mondatban válaszolj, mivel élőszóban beszélsz. Soha ne mondd ki, ne ismételd meg és ne írd le a [ROBOT STATE] címkét vagy szögletes zárójeles szövegeket!"
+    temperature: 0.7
+    max_history_length: 10
+    stream: false
+
+/stt_node:
+  ros__parameters:
+    use_udp_mic: true
+    continuous_mode: false
+    udp_multicast_group: "239.168.123.161"
+    udp_port: 5555
+    udp_local_ip: "192.168.123.164"
+    model_size: "small"
+    language: "hu"
+    device: "cpu"
+    sample_rate: 16000
+    recording_duration: 8.0
+    silence_threshold: 0.008
+    silence_duration: 2.0
+
+/wake_word_node:
+  ros__parameters:
+    wake_word_model: "hey_jarvis"
+    detection_threshold: 0.5
+    sample_rate: 16000
+    chunk_duration: 0.08
+    use_wake_word: false
+    use_select_button: false
+    select_key: "s"
+
+/tts_node:
+  ros__parameters:
+    voice_model_path: "/home/unitree/.local/share/piper/hu_HU-imre-medium.onnx"
+    continuous_mode: false
+    use_cuda: false
+    output_device: 25
+    output_sample_rate: 44100
+    tts_mode: "binary"
+    piper_binary: "/usr/local/bin/piper"

@@ -158,6 +158,7 @@ class TTSNode(Node):
         cmd = [
             '/home/unitree/unitree_sdk2_latest/build/bin/g1_piper_tts',
             'eth0',
+            self.model_path,
         ]
         result = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:

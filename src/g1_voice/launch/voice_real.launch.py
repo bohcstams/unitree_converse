@@ -1,6 +1,7 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import LogInfo
+from launch.actions import DeclareLaunchArgument, LogInfo
+from launch.substitutions import LaunchConfiguration
 from ament_index_python.packages import get_package_share_directory
 import os
 
@@ -8,9 +9,17 @@ import os
 def generate_launch_description():
 
     pkg_share = get_package_share_directory('g1_voice')
-    params_file = os.path.join(pkg_share, 'config', 'voice_params_real.yaml')
+    default_params_file = os.path.join(pkg_share, 'config', 'voice_params_real.yaml')
+
+    params_file = LaunchConfiguration('params_file')
 
     return LaunchDescription([
+
+        DeclareLaunchArgument(
+            'params_file',
+            default_value=default_params_file,
+            description='Path to voice parameters YAML file'
+        ),
 
         LogInfo(msg='Starting G1 voice pipeline (real robot)...'),
 

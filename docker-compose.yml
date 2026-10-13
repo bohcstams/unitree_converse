@@ -5,6 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.foxy
+    image: unitree_converse:latest
     container_name: unitree_converse
     restart: unless-stopped
     network_mode: host
