@@ -3,7 +3,7 @@ FROM ros:foxy-ros-base
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Core build tools, networking, DDS, and audio libraries
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     git \
@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-colcon-common-extensions \
     ros-foxy-rmw-cyclonedds-cpp \
+    ros-foxy-rosidl-generator-dds-idl \
     libyaml-cpp-dev \
     sox \
     libsox-fmt-all \
@@ -19,14 +20,19 @@ RUN apt-get update && apt-get install -y \
     alsa-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and packaging tools
-RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
+# Force upgrade pip directly and keep setuptools < 70 (quoted to prevent shell redirection)
+RUN python3 -m pip install --no-cache-dir --upgrade pip "setuptools<70.0.0" wheel
 
-# Python audio, STT, and LLM dependencies
-RUN pip3 install --no-cache-dir \
+# Pin huggingface-hub and tokenizers to versions with pre-built aarch64 Python 3.8 wheels (bypasses hf-xet and puccinialin errors)
+RUN python3 -m pip install --no-cache-dir \
+    "huggingface-hub<0.24.0" \
+    "tokenizers>=0.14.0,<0.19.0"
+
+# Install remaining Python audio, STT, and LLM dependencies
+RUN python3 -m pip install --no-cache-dir \
     requests \
     openwakeword \
-    faster-whisper \
+    "faster-whisper<=1.0.3" \
     sounddevice \
     soundfile \
     tqdm \
@@ -49,16 +55,17 @@ RUN ARCH=$(dpkg --print-architecture) && \
 RUN python3 -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
 
 # Download English Piper TTS voice model and config (en_US-lessac-medium)
-# Symlink to /home/unitree/.local/share/piper so real-robot config paths work seamlessly
 RUN mkdir -p /root/.local/share/piper && cd /root/.local/share/piper && \
     curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx && \
     curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json && \
     mkdir -p /home/unitree/.local/share && \
     ln -s /root/.local/share/piper /home/unitree/.local/share/piper
 
-# Pre-build Unitree ROS2 messages (unitree_go, unitree_api, unitree_hg)
+# Pre-build Unitree ROS2 messages for Foxy
 RUN mkdir -p /root/unitree_ros2_ws/src && cd /root/unitree_ros2_ws/src && \
-    git clone --depth 1 https://github.com/unitreerobotics/unitree_ros2.git && \
+    git clone https://github.com/unitreerobotics/unitree_ros2.git && \
+    cd unitree_ros2 && \
+    (git checkout foxy 2>/dev/null || true) && \
     cd /root/unitree_ros2_ws && \
     /bin/bash -c "source /opt/ros/foxy/setup.bash && colcon build --packages-select unitree_go unitree_api unitree_hg"
 
