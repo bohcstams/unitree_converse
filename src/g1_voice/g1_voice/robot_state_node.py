@@ -156,7 +156,7 @@ class RobotStateNode(Node):
         lines.append(f'Active ROS2 nodes: {sys_info["ros_nodes"]}')
         lines.append(f'LLM: Ollama LLaMA 3.2 3B (local)')
         lines.append(f'STT: faster-whisper base')
-        lines.append(f'TTS: Piper en_US-lessac-medium (Aletta voice)')
+        lines.append(f'TTS: Piper en_US-lessac-medium (Mate voice)')
         lines.append('[/ROBOT STATE]')
 
         return '\n'.join(lines)
