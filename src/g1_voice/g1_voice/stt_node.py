@@ -62,6 +62,46 @@ class STTNode(Node):
         self.get_logger().info(f'STT node ready — mic: {mic_mode}')
         self.get_logger().info(f'Continuous mode: {self.continuous_mode}')
 
+        self.calibrated_noise_floor = None
+        if self.use_udp_mic:
+            threading.Thread(target=self._calibrate_noise, daemon=True).start()
+
+    def _calibrate_noise(self, duration=1.0):
+        """Measure ambient robot fan/motor noise over UDP to set a dynamic speech threshold."""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            sock.bind(('', self.udp_port))
+            mreq = struct.pack('4s4s',
+                socket.inet_aton(self.udp_multicast_group),
+                socket.inet_aton(self.udp_local_ip))
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+            sock.settimeout(0.2)
+
+            self.get_logger().info('Measuring robot fan/motor noise floor (1.0s)...')
+            samples_rms = []
+            start_t = time.time()
+            while time.time() - start_t < duration:
+                try:
+                    data, _ = sock.recvfrom(65535)
+                    samples = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
+                    if len(samples) > 0:
+                        samples_rms.append(float(np.sqrt(np.mean(samples**2))))
+                except socket.timeout:
+                    continue
+            sock.close()
+
+            if samples_rms:
+                self.calibrated_noise_floor = max(float(np.mean(samples_rms)), 0.001)
+                self.silence_threshold = max(self.calibrated_noise_floor * 2.5 + 0.005, 0.01)
+                self.get_logger().info(
+                    f'Noise calibration complete: baseline floor={self.calibrated_noise_floor:.5f}, '
+                    f'dynamic speech threshold={self.silence_threshold:.5f}'
+                )
+        except Exception as e:
+            self.get_logger().warn(f'Noise calibration failed, keeping default threshold ({self.silence_threshold}): {e}')
+
     def trigger_callback(self, msg: Bool):
         if msg.data and not self.is_recording:
             self.get_logger().info('Trigger received — starting recording')
@@ -99,13 +139,18 @@ class STTNode(Node):
 
         self._publish_status('transcribing')
 
+        # Volume normalization boosts quiet/distant speech so Whisper transcribes it accurately
+        max_amp = float(np.max(np.abs(audio_data)))
+        if max_amp > 0.005:
+            audio_data = (audio_data / max_amp) * 0.95
+
         try:
             segments, info = self.model.transcribe(
                 audio_data,
                 language=self.language,
                 beam_size=5,
                 vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=500)
+                vad_parameters=dict(min_silence_duration_ms=500, threshold=0.35)
             )
 
             transcript = ' '.join([seg.text.strip() for seg in segments]).strip()
