@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsox-fmt-all \
     portaudio19-dev \
     alsa-utils \
+    espeak-ng-data \
     && rm -rf /var/lib/apt/lists/*
 
 # Force upgrade pip directly and keep setuptools < 70 (quoted to prevent shell redirection)
@@ -47,6 +48,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
     tar -xzf piper.tar.gz -C /tmp && \
     cp /tmp/piper/piper /usr/local/bin/piper && \
     cp /tmp/piper/lib* /usr/local/lib/ 2>/dev/null || true && \
+    cp -r /tmp/piper/espeak-ng-data /usr/share/espeak-ng-data 2>/dev/null || true && \
     ldconfig && \
     rm -rf piper.tar.gz /tmp/piper && \
     (pip3 install --no-cache-dir piper-tts || true)

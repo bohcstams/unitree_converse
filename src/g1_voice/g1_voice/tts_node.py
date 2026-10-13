@@ -83,6 +83,14 @@ class TTSNode(Node):
         if not reply:
             return
 
+        import re
+        # Strip metadata tags like [ROBOT STATE], [/ROBOT STATE], etc.
+        reply = re.sub(r'\[/?ROBOT STATE[^\]]*\]', '', reply, flags=re.IGNORECASE)
+        reply = re.sub(r'\s+', ' ', reply).strip()
+
+        if not reply:
+            return
+
         preview = f'"{reply[:80]}..."' if len(reply) > 80 else f'"{reply}"'
         self.get_logger().info(f'Speaking: {preview}')
         threading.Thread(target=self._speak, args=(reply,), daemon=True).start()
