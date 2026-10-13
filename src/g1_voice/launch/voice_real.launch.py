@@ -32,7 +32,7 @@ def generate_launch_description():
 
         Node(
             package='bob_llm',
-            executable='llm_node.py',
+            executable='llm',
             name='llm_node',
             output='screen',
             parameters=[params_file],
