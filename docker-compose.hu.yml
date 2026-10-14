@@ -39,7 +39,7 @@ services:
         export LANG=C.UTF-8 &&
         export LC_ALL=C.UTF-8 &&
         mkdir -p /usr/local/cuda &&
-        for d in bin lib64 nvvm targets share; do
+        for d in bin lib64 nvvm share; do
           if [ -d \"/host_cuda/$$d\" ] && [ ! -e \"/usr/local/cuda/$$d\" ]; then
             ln -s \"/host_cuda/$$d\" \"/usr/local/cuda/$$d\";
           fi;
@@ -48,9 +48,22 @@ services:
         if [ -d /host_cuda/include ]; then
           cp -an /host_cuda/include/* /usr/local/cuda/include/ 2>/dev/null || true;
         fi &&
+        mkdir -p /usr/local/cuda/targets/aarch64-linux/include &&
+        mkdir -p /usr/local/cuda/targets/aarch64-linux/lib &&
+        if [ -d /host_cuda/targets/aarch64-linux/include ]; then
+          cp -an /host_cuda/targets/aarch64-linux/include/* /usr/local/cuda/targets/aarch64-linux/include/ 2>/dev/null || true;
+        fi &&
+        if [ -d /host_cuda/targets/aarch64-linux/lib ]; then
+          for f in /host_cuda/targets/aarch64-linux/lib/*; do
+            base=$$(basename \"$$f\");
+            [ ! -e \"/usr/local/cuda/targets/aarch64-linux/lib/$$base\" ] && ln -s \"$$f\" \"/usr/local/cuda/targets/aarch64-linux/lib/$$base\" 2>/dev/null || true;
+          done;
+        fi &&
         if [ -d /host_include ]; then
           cp -f /host_include/cudnn*.h /usr/local/cuda/include/ 2>/dev/null || true &&
           cp -f /host_include/aarch64-linux-gnu/cudnn*.h /usr/local/cuda/include/ 2>/dev/null || true &&
+          cp -f /host_include/cudnn*.h /usr/local/cuda/targets/aarch64-linux/include/ 2>/dev/null || true &&
+          cp -f /host_include/aarch64-linux-gnu/cudnn*.h /usr/local/cuda/targets/aarch64-linux/include/ 2>/dev/null || true &&
           cp -f /host_include/cudnn*.h /usr/include/ 2>/dev/null || true &&
           cp -f /host_include/aarch64-linux-gnu/cudnn*.h /usr/include/ 2>/dev/null || true;
         fi &&
@@ -113,10 +126,17 @@ services:
           apt-get install -y --no-install-recommends cmake git build-essential libopenblas-dev python3-dev &&
           rm -rf /tmp/ctranslate2_build &&
           git clone --recursive --branch v3.24.0 --depth 1 https://github.com/OpenNMT/CTranslate2.git /tmp/ctranslate2_build &&
-          cp -f /usr/include/cudnn*.h /tmp/ctranslate2_build/src/cuda/ 2>/dev/null || true &&
-          cp -f /usr/include/cudnn*.h /tmp/ctranslate2_build/include/ 2>/dev/null || true &&
+          cp -f /host_include/cudnn*.h /tmp/ctranslate2_build/src/ 2>/dev/null || true &&
+          cp -f /host_include/aarch64-linux-gnu/cudnn*.h /tmp/ctranslate2_build/src/ 2>/dev/null || true &&
+          cp -f /host_include/cudnn*.h /tmp/ctranslate2_build/src/cuda/ 2>/dev/null || true &&
+          cp -f /host_include/aarch64-linux-gnu/cudnn*.h /tmp/ctranslate2_build/src/cuda/ 2>/dev/null || true &&
+          cp -f /host_include/cudnn*.h /tmp/ctranslate2_build/src/ops/ 2>/dev/null || true &&
+          cp -f /host_include/aarch64-linux-gnu/cudnn*.h /tmp/ctranslate2_build/src/ops/ 2>/dev/null || true &&
+          cp -f /host_include/cudnn*.h /tmp/ctranslate2_build/include/ 2>/dev/null || true &&
+          cp -f /host_include/aarch64-linux-gnu/cudnn*.h /tmp/ctranslate2_build/include/ 2>/dev/null || true &&
+          sed -i 's/cuda_add_library(/cuda_include_directories(\/usr\/include \/usr\/local\/cuda\/include \/usr\/local\/cuda\/targets\/aarch64-linux\/include)\n  cuda_add_library(/' /tmp/ctranslate2_build/CMakeLists.txt 2>/dev/null || true &&
           mkdir -p /tmp/ctranslate2_build/build && cd /tmp/ctranslate2_build/build &&
-          cmake .. -DWITH_CUDA=ON -DWITH_CUDNN=ON -DCUDA_DYNAMIC_LOADING=ON -DCUDNN_INCLUDE_DIR=/usr/include -DCUDNN_LIBRARY=/usr/lib/aarch64-linux-gnu/libcudnn.so -DCUDA_NVCC_FLAGS="-I/usr/include" -DCMAKE_CUDA_FLAGS="-I/usr/include" -DWITH_MKL=OFF -DOPENMP_RUNTIME=COMP -DCMAKE_CUDA_ARCHITECTURES=87 -DCMAKE_INSTALL_PREFIX=/usr/local &&
+          cmake .. -DWITH_CUDA=ON -DWITH_CUDNN=ON -DCUDA_DYNAMIC_LOADING=ON -DCUDNN_INCLUDE_DIR=/usr/include -DCUDNN_LIBRARY=/usr/lib/aarch64-linux-gnu/libcudnn.so -DCUDA_NVCC_FLAGS=\"-I/usr/include -I/usr/local/cuda/targets/aarch64-linux/include\" -DCMAKE_CUDA_FLAGS=\"-I/usr/include\" -DWITH_MKL=OFF -DOPENMP_RUNTIME=COMP -DCMAKE_CUDA_ARCHITECTURES=87 -DCUDA_ARCH_LIST=8.7 -DCMAKE_INSTALL_PREFIX=/usr/local &&
           make -j$$(nproc) &&
           make install &&
           ldconfig &&
