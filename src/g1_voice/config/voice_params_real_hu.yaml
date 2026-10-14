@@ -13,7 +13,7 @@
 
 /action_dispatcher_node:
   ros__parameters:
-    completion_phrase: "Kész vagyok! Mi a következő kérésed?"
+    language: "hu"
     auto_listen_after_done: false
 
 /stt_node:

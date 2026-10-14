@@ -1,0 +1,21 @@
+completion:
+  hu:
+    - "Kész vagyok! Mi a következő kérésed?"
+    - "Befejeztem a feladatot! Miben segíthetek még?"
+    - "A tárgyakat elrendeztem. Mi legyen a következő lépés?"
+    - "Kész a művelet! Várom a következő utasítást."
+    - "Sikeresen végeztem! Mi a következő feladat?"
+  en:
+    - "I'm done! What's the next request?"
+    - "I've completed the task. What should I do next?"
+    - "All done! How else can I help?"
+    - "The objects are in place. What is the next task?"
+    - "Action finished! Ready for the next command."
+
+error:
+  hu:
+    - "Sajnos nem sikerült befejezni a feladatot."
+    - "Hiba történt a végrehajtás során."
+  en:
+    - "Sorry, I was unable to complete the task."
+    - "An error occurred while executing the action."
