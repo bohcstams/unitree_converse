@@ -34,8 +34,6 @@ services:
       - /usr/include:/host_include:ro
       # Host libraries for cuDNN (READ-ONLY: host files cannot be modified)
       - /usr/lib/aarch64-linux-gnu:/host_lib:ro
-      # Host alternatives for symlinks (READ-ONLY: host files cannot be modified)
-      - /etc/alternatives:/etc/alternatives:ro
     command: >
       bash -c "
         export LANG=C.UTF-8 &&
@@ -51,7 +49,14 @@ services:
           cp -f /host_include/aarch64-linux-gnu/cudnn*.h /usr/include/ 2>/dev/null || true;
         fi &&
         if [ -d /host_lib ]; then
-          cp -d /host_lib/libcudnn*.so* /usr/lib/aarch64-linux-gnu/ 2>/dev/null || true;
+          for f in /host_lib/libcudnn*.so*; do
+            if [ -f \"$$f\" ]; then
+              base=$$(basename \"$$f\");
+              ln -sf \"$$f\" \"/usr/lib/aarch64-linux-gnu/$$base\" 2>/dev/null || true;
+            fi;
+          done &&
+          ln -sf /host_lib/libcudnn.so.8.6.0 /usr/lib/aarch64-linux-gnu/libcudnn.so 2>/dev/null || true &&
+          ln -sf /host_lib/libcudnn.so.8.6.0 /usr/lib/aarch64-linux-gnu/libcudnn.so.8 2>/dev/null || true;
         fi &&
         ldconfig &&
         source /opt/ros/foxy/setup.bash &&
