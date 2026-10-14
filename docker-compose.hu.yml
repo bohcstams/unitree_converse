@@ -147,6 +147,7 @@ services:
           echo '=== cuDNN headers in CTranslate2 src: ===' &&
           ls -la /tmp/ctranslate2_build/src/cudnn*.h &&
           grep -rl "par_nosync" /tmp/ctranslate2_build/src | xargs -r sed -i 's/par_nosync/par/g' &&
+          sed -i 's/DECLARE_IMPL(bfloat16_t)/\/\/ DECLARE_IMPL(bfloat16_t)/' /tmp/ctranslate2_build/src/ops/topk_gpu.cu 2>/dev/null || true &&
           sed -i 's/cuda_add_library(/cuda_include_directories(\/usr\/include \/usr\/local\/cuda\/include \/usr\/local\/cuda\/targets\/aarch64-linux\/include)\n  cuda_add_library(/' /tmp/ctranslate2_build/CMakeLists.txt 2>/dev/null || true &&
           mkdir -p /tmp/ctranslate2_build/build && cd /tmp/ctranslate2_build/build &&
           cmake .. -DWITH_CUDA=ON -DWITH_CUDNN=ON -DCUDA_DYNAMIC_LOADING=ON -DCUDNN_INCLUDE_DIR=/usr/include -DCUDNN_LIBRARY=/usr/lib/aarch64-linux-gnu/libcudnn.so -DCUDA_NVCC_FLAGS=\"-I/usr/include -I/usr/local/cuda/targets/aarch64-linux/include\" -DCMAKE_CUDA_FLAGS=\"-I/usr/include\" -DWITH_MKL=OFF -DOPENMP_RUNTIME=COMP -DCMAKE_CUDA_ARCHITECTURES=87 -DCUDA_ARCH_LIST=8.7 -DCMAKE_INSTALL_PREFIX=/usr/local &&
