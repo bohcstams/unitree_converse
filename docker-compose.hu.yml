@@ -15,7 +15,7 @@ services:
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
       - CYCLONEDDS_URI=/home/unitree/cyclonedds_ws/cyclonedds.xml
-      - LLM_API_MODEL=qwen2.5:7b-instruct-q4_K_M
+      - LLM_API_MODEL=qwen2.5:3b
       - PYTHONUNBUFFERED=1
       - PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/aarch64-linux/lib:/usr/local/lib:/usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu
