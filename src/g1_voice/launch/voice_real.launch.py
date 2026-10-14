@@ -71,4 +71,11 @@ def generate_launch_description():
             output='screen',
             parameters=[params_file],
         ),
+        Node(
+            package='g1_voice',
+            executable='action_dispatcher_node',
+            name='action_dispatcher_node',
+            output='screen',
+            parameters=[params_file],
+        ),
     ])

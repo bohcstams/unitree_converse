@@ -47,6 +47,8 @@ class TTSNode(Node):
 
         self.response_sub = self.create_subscription(
             String, 'llm_response', self.response_callback, 10)
+        self.say_sub = self.create_subscription(
+            String, '/g1/tts/say', self.response_callback, 10)
         self.create_subscription(Bool, '/g1/voice/continuous_start', self._continuous_start_cb, 10)
         self.create_subscription(Bool, '/g1/voice/continuous_stop', self._continuous_stop_cb, 10)
 
