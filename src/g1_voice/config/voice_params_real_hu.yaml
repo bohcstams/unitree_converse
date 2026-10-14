@@ -20,6 +20,8 @@
     device: "cuda"
     compute_type: "float16"
     beam_size: 1
+    cpu_threads: 4
+    initial_prompt: "Szia Máté! Kérlek keresd meg az asztalon a tárgyakat, vedd fel a kockát és tedd át a dobozba."
     sample_rate: 16000
     recording_duration: 8.0
     silence_threshold: 0.008

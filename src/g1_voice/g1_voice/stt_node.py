@@ -27,11 +27,16 @@ class STTNode(Node):
         self.declare_parameter('udp_local_ip', '192.168.123.164')
         self.declare_parameter('continuous_mode', False)
 
+        self.declare_parameter('cpu_threads', 4)
+        self.declare_parameter('initial_prompt', '')
+
         self.model_size = self.get_parameter('model_size').get_parameter_value().string_value
         self.language = self.get_parameter('language').get_parameter_value().string_value
         self.device = self.get_parameter('device').get_parameter_value().string_value
         self.compute_type = self.get_parameter('compute_type').get_parameter_value().string_value
         self.beam_size = self.get_parameter('beam_size').get_parameter_value().integer_value
+        self.cpu_threads = self.get_parameter('cpu_threads').get_parameter_value().integer_value
+        self.initial_prompt = self.get_parameter('initial_prompt').get_parameter_value().string_value
         self.sample_rate = self.get_parameter('sample_rate').get_parameter_value().integer_value
         self.recording_duration = self.get_parameter('recording_duration').get_parameter_value().double_value
         self.silence_threshold = self.get_parameter('silence_threshold').get_parameter_value().double_value
@@ -51,14 +56,20 @@ class STTNode(Node):
         self.get_logger().info(f'Loading faster-whisper model: {self.model_size} on {self.device} ({self.compute_type})')
         from faster_whisper import WhisperModel
         try:
-            self.model = WhisperModel(self.model_size, device=self.device, compute_type=self.compute_type)
+            self.model = WhisperModel(
+                self.model_size, device=self.device, compute_type=self.compute_type,
+                cpu_threads=self.cpu_threads
+            )
             self.get_logger().info(f'faster-whisper model loaded successfully on {self.device}')
         except Exception as e:
             if self.device == 'cuda':
                 self.get_logger().error(f'Failed to load faster-whisper on CUDA: {e}. Falling back to CPU (int8)...')
                 self.device = 'cpu'
                 self.compute_type = 'int8'
-                self.model = WhisperModel(self.model_size, device=self.device, compute_type=self.compute_type)
+                self.model = WhisperModel(
+                    self.model_size, device=self.device, compute_type=self.compute_type,
+                    cpu_threads=self.cpu_threads
+                )
                 self.get_logger().info('faster-whisper model loaded on CPU fallback')
             else:
                 raise e
@@ -166,6 +177,7 @@ class STTNode(Node):
                 audio_data,
                 language=self.language,
                 beam_size=self.beam_size,
+                initial_prompt=self.initial_prompt if self.initial_prompt else None,
                 vad_filter=True,
                 vad_parameters=dict(min_silence_duration_ms=500, threshold=0.35)
             )

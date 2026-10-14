@@ -26,6 +26,8 @@ services:
       - /home/unitree/unitree_sdk2_latest:/home/unitree/unitree_sdk2_latest:ro
       # CycloneDDS configuration from host (if available)
       - /home/unitree/cyclonedds_ws:/home/unitree/cyclonedds_ws:ro
+      # CUDA toolkit from host (READ-ONLY: host files cannot be modified)
+      - /usr/local/cuda:/usr/local/cuda:ro
     command: >
       bash -c "
         export LANG=C.UTF-8 &&
@@ -50,7 +52,31 @@ services:
           curl -L -f -o /root/.local/share/piper/hu_HU-imre-medium.onnx https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/imre/medium/hu_HU-imre-medium.onnx &&
           curl -L -f -o /root/.local/share/piper/hu_HU-imre-medium.onnx.json https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/imre/medium/hu_HU-imre-medium.onnx.json;
         fi &&
-        echo 'Checking faster-whisper small model...' &&
+        mkdir -p /root/ros2_ws/src/unitree_converse/wheels &&
+        if ls /root/ros2_ws/src/unitree_converse/wheels/ctranslate2*.whl 1> /dev/null 2>&1; then
+          echo 'Found cached CUDA CTranslate2 wheel, installing...' &&
+          python3 -m pip install --no-deps --force-reinstall /root/ros2_ws/src/unitree_converse/wheels/ctranslate2*.whl;
+        elif ! python3 -c \"import ctranslate2; assert 'cuda' in ctranslate2.get_supported_compute_types('cuda')\" 2>/dev/null; then
+          echo 'First run: Compiling CUDA CTranslate2 inside container for Jetson Orin (takes ~3-4 mins once)...' &&
+          export PATH=/usr/local/cuda/bin:$$PATH &&
+          export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$$LD_LIBRARY_PATH &&
+          apt-get update -qq &&
+          apt-get install -y --no-install-recommends cmake git build-essential libopenblas-dev python3-dev &&
+          rm -rf /tmp/ctranslate2_build &&
+          git clone --recursive --branch v3.24.0 --depth 1 https://github.com/OpenNMT/CTranslate2.git /tmp/ctranslate2_build &&
+          mkdir -p /tmp/ctranslate2_build/build && cd /tmp/ctranslate2_build/build &&
+          cmake .. -DWITH_CUDA=ON -DWITH_CUDNN=ON -DWITH_MKL=OFF -DOPENMP_RUNTIME=COMP -DCMAKE_CUDA_ARCHITECTURES=87 -DCMAKE_INSTALL_PREFIX=/tmp/install &&
+          make -j$$(nproc) &&
+          make install &&
+          cd ../python &&
+          pip3 install -r install_requirements.txt || true &&
+          python3 setup.py bdist_wheel &&
+          cp dist/*.whl /root/ros2_ws/src/unitree_converse/wheels/ &&
+          pip3 install --no-deps --force-reinstall dist/*.whl &&
+          rm -rf /tmp/ctranslate2_build &&
+          echo 'CUDA CTranslate2 build complete and saved to wheels/!';
+        fi &&
+        echo 'Checking faster-whisper model...' &&
         python3 -c \"from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8')\" &&
         cd /root/ros2_ws &&
         colcon build --symlink-install &&
