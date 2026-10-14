@@ -95,12 +95,16 @@ services:
           echo 'Compiling CUDA+cuDNN CTranslate2 inside container for Jetson Orin (takes ~3 mins once)...' &&
           export PATH=/usr/local/cuda/bin:$$PATH &&
           export LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/aarch64-linux-gnu:/host_lib:$$LD_LIBRARY_PATH &&
+          export NVCC_PREPEND_FLAGS="-I/usr/include" &&
+          export CUDAFLAGS="-I/usr/include" &&
           apt-get update -qq &&
           apt-get install -y --no-install-recommends cmake git build-essential libopenblas-dev python3-dev &&
           rm -rf /tmp/ctranslate2_build &&
           git clone --recursive --branch v3.24.0 --depth 1 https://github.com/OpenNMT/CTranslate2.git /tmp/ctranslate2_build &&
+          cp -f /usr/include/cudnn*.h /tmp/ctranslate2_build/src/cuda/ 2>/dev/null || true &&
+          cp -f /usr/include/cudnn*.h /tmp/ctranslate2_build/include/ 2>/dev/null || true &&
           mkdir -p /tmp/ctranslate2_build/build && cd /tmp/ctranslate2_build/build &&
-          cmake .. -DWITH_CUDA=ON -DWITH_CUDNN=ON -DCUDNN_INCLUDE_DIR=/usr/include -DCUDNN_LIBRARY=/usr/lib/aarch64-linux-gnu/libcudnn.so -DWITH_MKL=OFF -DOPENMP_RUNTIME=COMP -DCMAKE_CUDA_ARCHITECTURES=87 -DCMAKE_INSTALL_PREFIX=/usr/local &&
+          cmake .. -DWITH_CUDA=ON -DWITH_CUDNN=ON -DCUDA_DYNAMIC_LOADING=ON -DCUDNN_INCLUDE_DIR=/usr/include -DCUDNN_LIBRARY=/usr/lib/aarch64-linux-gnu/libcudnn.so -DCUDA_NVCC_FLAGS="-I/usr/include" -DCMAKE_CUDA_FLAGS="-I/usr/include" -DWITH_MKL=OFF -DOPENMP_RUNTIME=COMP -DCMAKE_CUDA_ARCHITECTURES=87 -DCMAKE_INSTALL_PREFIX=/usr/local &&
           make -j$$(nproc) &&
           make install &&
           ldconfig &&
