@@ -28,6 +28,8 @@ services:
       - /home/unitree/cyclonedds_ws:/home/unitree/cyclonedds_ws:ro
       # CUDA toolkit from host (READ-ONLY: host files cannot be modified)
       - /usr/local/cuda:/usr/local/cuda:ro
+      # Host headers for cuDNN (READ-ONLY: host files cannot be modified)
+      - /usr/include:/host_include:ro
     command: >
       bash -c "
         export LANG=C.UTF-8 &&
@@ -59,16 +61,28 @@ services:
         elif ! python3 -c \"import ctranslate2; assert 'cuda' in ctranslate2.get_supported_compute_types('cuda')\" 2>/dev/null; then
           echo 'First run: Compiling CUDA CTranslate2 inside container for Jetson Orin (takes ~3-4 mins once)...' &&
           export PATH=/usr/local/cuda/bin:$$PATH &&
-          export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$$LD_LIBRARY_PATH &&
+          export LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/aarch64-linux-gnu:$$LD_LIBRARY_PATH &&
+          if [ -d /host_include ]; then
+            echo 'Copying cuDNN headers from host into container...' &&
+            cp -f /host_include/cudnn*.h /usr/include/ 2>/dev/null || true &&
+            cp -f /host_include/aarch64-linux-gnu/cudnn*.h /usr/include/ 2>/dev/null || true;
+          fi &&
           apt-get update -qq &&
           apt-get install -y --no-install-recommends cmake git build-essential libopenblas-dev python3-dev &&
           rm -rf /tmp/ctranslate2_build &&
           git clone --recursive --branch v3.24.0 --depth 1 https://github.com/OpenNMT/CTranslate2.git /tmp/ctranslate2_build &&
           mkdir -p /tmp/ctranslate2_build/build && cd /tmp/ctranslate2_build/build &&
-          cmake .. -DWITH_CUDA=ON -DWITH_CUDNN=ON -DWITH_MKL=OFF -DOPENMP_RUNTIME=COMP -DCMAKE_CUDA_ARCHITECTURES=87 -DCMAKE_INSTALL_PREFIX=/tmp/install &&
+          if [ -f /usr/include/cudnn.h ] || [ -f /usr/include/cudnn_version.h ]; then
+            echo 'cuDNN headers found, compiling with cuDNN enabled...' &&
+            CUDNN_FLAG=\"-DWITH_CUDNN=ON -DCUDNN_INCLUDE_DIR=/usr/include -DCUDNN_LIBRARY=/usr/lib/aarch64-linux-gnu/libcudnn.so\";
+          else
+            echo 'cuDNN headers not found, compiling with CUDA (cuDNN disabled)...' &&
+            CUDNN_FLAG=\"-DWITH_CUDNN=OFF\";
+          fi &&
+          cmake .. -DWITH_CUDA=ON $$CUDNN_FLAG -DWITH_MKL=OFF -DOPENMP_RUNTIME=COMP -DCMAKE_CUDA_ARCHITECTURES=87 -DCMAKE_INSTALL_PREFIX=/tmp/install &&
           make -j$$(nproc) &&
           make install &&
-          cd ../python &&
+          cd /tmp/ctranslate2_build/python &&
           pip3 install -r install_requirements.txt || true &&
           python3 setup.py bdist_wheel &&
           cp dist/*.whl /root/ros2_ws/src/unitree_converse/wheels/ &&
