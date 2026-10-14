@@ -7,11 +7,14 @@ services:
       dockerfile: Dockerfile.foxy
     image: unitree_converse:latest
     container_name: unitree_converse
+    runtime: nvidia
     restart: unless-stopped
     network_mode: host
     ipc: host
     privileged: true
     environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
       - CYCLONEDDS_URI=/home/unitree/cyclonedds_ws/cyclonedds.xml

@@ -17,7 +17,9 @@
     udp_local_ip: "192.168.123.164"
     model_size: "base"
     language: "en"
-    device: "cpu"
+    device: "cuda"
+    compute_type: "float16"
+    beam_size: 1
     sample_rate: 16000
     recording_duration: 8.0
     silence_threshold: 0.008
