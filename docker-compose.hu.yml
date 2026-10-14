@@ -34,6 +34,8 @@ services:
       - /usr/include:/host_include:ro
       # Host libraries for cuDNN (READ-ONLY: host files cannot be modified)
       - /usr/lib/aarch64-linux-gnu:/host_lib:ro
+      # Host alternatives symlink targets (READ-ONLY: host files cannot be modified)
+      - /etc/alternatives:/etc/alternatives:ro
     command: >
       bash -c "
         export LANG=C.UTF-8 &&
@@ -59,14 +61,21 @@ services:
             [ ! -e \"/usr/local/cuda/targets/aarch64-linux/lib/$$base\" ] && ln -s \"$$f\" \"/usr/local/cuda/targets/aarch64-linux/lib/$$base\" 2>/dev/null || true;
           done;
         fi &&
-        if [ -d /host_include ]; then
-          cp -f /host_include/cudnn*.h /usr/local/cuda/include/ 2>/dev/null || true &&
-          cp -f /host_include/aarch64-linux-gnu/cudnn*.h /usr/local/cuda/include/ 2>/dev/null || true &&
-          cp -f /host_include/cudnn*.h /usr/local/cuda/targets/aarch64-linux/include/ 2>/dev/null || true &&
-          cp -f /host_include/aarch64-linux-gnu/cudnn*.h /usr/local/cuda/targets/aarch64-linux/include/ 2>/dev/null || true &&
-          cp -f /host_include/cudnn*.h /usr/include/ 2>/dev/null || true &&
-          cp -f /host_include/aarch64-linux-gnu/cudnn*.h /usr/include/ 2>/dev/null || true;
-        fi &&
+        echo '=== Installing cuDNN headers into container ===' &&
+        mkdir -p /usr/include/aarch64-linux-gnu &&
+        for target_dir in /usr/include /usr/include/aarch64-linux-gnu /usr/local/cuda/include /usr/local/cuda/targets/aarch64-linux/include; do
+          mkdir -p \"$$target_dir\" &&
+          for f in /host_include/aarch64-linux-gnu/cudnn*.h /host_include/cudnn*.h; do
+            if [ -e \"$$f\" ]; then
+              base=$$(basename \"$$f\");
+              clean=$$(echo \"$$base\" | sed 's/_v8//');
+              cp -Lf \"$$f\" \"$$target_dir/$$base\" 2>/dev/null || cp -f \"$$f\" \"$$target_dir/$$base\" 2>/dev/null || true;
+              cp -Lf \"$$f\" \"$$target_dir/$$clean\" 2>/dev/null || cp -f \"$$f\" \"$$target_dir/$$clean\" 2>/dev/null || true;
+            fi;
+          done;
+        done &&
+        echo '=== cuDNN headers installed in /usr/include: ===' &&
+        ls -la /usr/include/cudnn*.h &&
         export PATH=/usr/local/cuda/bin:$$PATH &&
         export LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/aarch64-linux/lib:/usr/local/lib:/usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu:/host_lib:$$LD_LIBRARY_PATH &&
         echo '/usr/local/cuda/lib64' > /etc/ld.so.conf.d/cuda.conf &&
@@ -126,14 +135,18 @@ services:
           apt-get install -y --no-install-recommends cmake git build-essential libopenblas-dev python3-dev &&
           rm -rf /tmp/ctranslate2_build &&
           git clone --recursive --branch v3.24.0 --depth 1 https://github.com/OpenNMT/CTranslate2.git /tmp/ctranslate2_build &&
-          cp -f /host_include/cudnn*.h /tmp/ctranslate2_build/src/ 2>/dev/null || true &&
-          cp -f /host_include/aarch64-linux-gnu/cudnn*.h /tmp/ctranslate2_build/src/ 2>/dev/null || true &&
-          cp -f /host_include/cudnn*.h /tmp/ctranslate2_build/src/cuda/ 2>/dev/null || true &&
-          cp -f /host_include/aarch64-linux-gnu/cudnn*.h /tmp/ctranslate2_build/src/cuda/ 2>/dev/null || true &&
-          cp -f /host_include/cudnn*.h /tmp/ctranslate2_build/src/ops/ 2>/dev/null || true &&
-          cp -f /host_include/aarch64-linux-gnu/cudnn*.h /tmp/ctranslate2_build/src/ops/ 2>/dev/null || true &&
-          cp -f /host_include/cudnn*.h /tmp/ctranslate2_build/include/ 2>/dev/null || true &&
-          cp -f /host_include/aarch64-linux-gnu/cudnn*.h /tmp/ctranslate2_build/include/ 2>/dev/null || true &&
+          echo '=== Copying cuDNN headers to CTranslate2 build tree ===' &&
+          for target_dir in /tmp/ctranslate2_build/src /tmp/ctranslate2_build/src/cuda /tmp/ctranslate2_build/src/ops /tmp/ctranslate2_build/include; do
+            mkdir -p \"$$target_dir\" &&
+            for f in /usr/include/cudnn*.h; do
+              if [ -f \"$$f\" ]; then
+                base=$$(basename \"$$f\");
+                cp -f \"$$f\" \"$$target_dir/$$base\" 2>/dev/null || true;
+              fi;
+            done;
+          done &&
+          echo '=== cuDNN headers in CTranslate2 src: ===' &&
+          ls -la /tmp/ctranslate2_build/src/cudnn*.h &&
           sed -i 's/cuda_add_library(/cuda_include_directories(\/usr\/include \/usr\/local\/cuda\/include \/usr\/local\/cuda\/targets\/aarch64-linux\/include)\n  cuda_add_library(/' /tmp/ctranslate2_build/CMakeLists.txt 2>/dev/null || true &&
           mkdir -p /tmp/ctranslate2_build/build && cd /tmp/ctranslate2_build/build &&
           cmake .. -DWITH_CUDA=ON -DWITH_CUDNN=ON -DCUDA_DYNAMIC_LOADING=ON -DCUDNN_INCLUDE_DIR=/usr/include -DCUDNN_LIBRARY=/usr/lib/aarch64-linux-gnu/libcudnn.so -DCUDA_NVCC_FLAGS=\"-I/usr/include -I/usr/local/cuda/targets/aarch64-linux/include\" -DCMAKE_CUDA_FLAGS=\"-I/usr/include\" -DWITH_MKL=OFF -DOPENMP_RUNTIME=COMP -DCMAKE_CUDA_ARCHITECTURES=87 -DCUDA_ARCH_LIST=8.7 -DCMAKE_INSTALL_PREFIX=/usr/local &&
