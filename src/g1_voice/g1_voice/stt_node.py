@@ -63,9 +63,9 @@ class STTNode(Node):
             self.get_logger().info(f'faster-whisper model loaded successfully on {self.device}')
         except Exception as e:
             if self.device == 'cuda':
-                self.get_logger().error(f'Failed to load faster-whisper on CUDA: {e}. Falling back to CPU (int8)...')
+                self.get_logger().error(f'Failed to load faster-whisper on CUDA: {e}. Falling back to CPU (default)...')
                 self.device = 'cpu'
-                self.compute_type = 'int8'
+                self.compute_type = 'default'
                 self.model = WhisperModel(
                     self.model_size, device=self.device, compute_type=self.compute_type,
                     cpu_threads=self.cpu_threads

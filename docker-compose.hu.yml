@@ -97,7 +97,7 @@ services:
           echo 'CUDA CTranslate2 build complete and saved to wheels/!';
         fi &&
         echo 'Checking faster-whisper model...' &&
-        python3 -c \"from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8')\" &&
+        python3 -c \"from faster_whisper import WhisperModel; WhisperModel('small', device='cuda', compute_type='float16')\" &&
         cd /root/ros2_ws &&
         colcon build --symlink-install &&
         source install/setup.bash &&
