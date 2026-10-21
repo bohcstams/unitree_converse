@@ -3,10 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.humble
+      network: host
     image: unitree_converse:latest
     container_name: unitree_converse
     runtime: nvidia
-    restart: unless-stopped
+    restart: "no"
     network_mode: host
     ipc: host
     privileged: true
@@ -15,24 +16,99 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - 'CYCLONEDDS_URI=<CycloneDDS><Domain><General><Interfaces><NetworkInterface name="enP8p1s0"/></Interfaces></General></Domain></CycloneDDS>'
       - LLM_API_MODEL=qwen2.5:3b
       - PYTHONUNBUFFERED=1
+      - PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/aarch64-linux/lib:/usr/local/lib:/usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu
     volumes:
       # Mount codebase into the ROS2 workspace
       - .:/root/ros2_ws/src/unitree_converse
       # Shared memory for CycloneDDS
       - /dev/shm:/dev/shm
-      # Mount /home/unitree so g1_piper_tts binary and cyclonedds_ws are accessible if present
+      # Mount /home/unitree so g1_piper_tts binary and cyclonedds_ws are accessible
       - /home/unitree:/home/unitree:ro
+      # CUDA toolkit and cuDNN from host (READ-ONLY)
+      - /usr/local/cuda:/host_cuda:ro
+      - /usr/include:/host_include:ro
+      - /usr/lib/aarch64-linux-gnu:/host_lib:ro
     command: >
       bash -c "
-        ROBOT_IFACE=$$(ip -4 -o addr show | awk '/192\\.168\\.123\\./ {print $$2; exit}') &&
-        ROBOT_IFACE=$${ROBOT_IFACE:-enP8p1s0} &&
-        if [ -f /home/unitree/cyclonedds_ws/cyclonedds.xml ]; then
-          export CYCLONEDDS_URI=/home/unitree/cyclonedds_ws/cyclonedds.xml;
+        export LANG=C.UTF-8 &&
+        export LC_ALL=C.UTF-8 &&
+        python3 -m pip install --no-cache-dir 'onnxruntime<1.20.0' &&
+        mkdir -p /usr/local/cuda &&
+        for d in bin lib64 nvvm share; do
+          if [ -d \"/host_cuda/$$d\" ] && [ ! -e \"/usr/local/cuda/$$d\" ]; then
+            ln -s \"/host_cuda/$$d\" \"/usr/local/cuda/$$d\";
+          fi;
+        done &&
+        mkdir -p /usr/local/cuda/include &&
+        if [ -d /host_cuda/include ]; then
+          cp -an /host_cuda/include/* /usr/local/cuda/include/ 2>/dev/null || true;
+        fi &&
+        mkdir -p /usr/local/cuda/targets/aarch64-linux/include &&
+        mkdir -p /usr/local/cuda/targets/aarch64-linux/lib &&
+        if [ -d /host_cuda/targets/aarch64-linux/include ]; then
+          cp -an /host_cuda/targets/aarch64-linux/include/* /usr/local/cuda/targets/aarch64-linux/include/ 2>/dev/null || true;
+        fi &&
+        if [ -d /host_cuda/targets/aarch64-linux/lib ]; then
+          for f in /host_cuda/targets/aarch64-linux/lib/*; do
+            base=$$(basename \"$$f\");
+            [ ! -e \"/usr/local/cuda/targets/aarch64-linux/lib/$$base\" ] && ln -s \"$$f\" \"/usr/local/cuda/targets/aarch64-linux/lib/$$base\" 2>/dev/null || true;
+          done;
+        fi &&
+        mkdir -p /usr/include/aarch64-linux-gnu &&
+        for target_dir in /usr/include /usr/include/aarch64-linux-gnu /usr/local/cuda/include /usr/local/cuda/targets/aarch64-linux/include; do
+          mkdir -p \"$$target_dir\" &&
+          for f in /host_include/aarch64-linux-gnu/cudnn*.h /host_include/cudnn*.h; do
+            if [ -e \"$$f\" ]; then
+              base=$$(basename \"$$f\");
+              clean=$$(echo \"$$base\" | sed -E 's/_v[0-9]+//');
+              cp -Lf \"$$f\" \"$$target_dir/$$base\" 2>/dev/null || cp -f \"$$f\" \"$$target_dir/$$base\" 2>/dev/null || true;
+              cp -Lf \"$$f\" \"$$target_dir/$$clean\" 2>/dev/null || true;
+            fi;
+          done;
+        done &&
+        export PATH=/usr/local/cuda/bin:$$PATH &&
+        export LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/aarch64-linux/lib:/usr/local/lib:/usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu:/host_lib:$$LD_LIBRARY_PATH &&
+        echo '/usr/local/cuda/lib64' > /etc/ld.so.conf.d/cuda.conf &&
+        echo '/usr/local/cuda/targets/aarch64-linux/lib' >> /etc/ld.so.conf.d/cuda.conf &&
+        echo '/usr/lib/aarch64-linux-gnu/tegra' >> /etc/ld.so.conf.d/cuda.conf &&
+        echo '/host_lib' >> /etc/ld.so.conf.d/cuda.conf &&
+        if [ -d /host_lib ]; then
+          for f in /host_lib/libcudnn*.so*; do
+            if [ -e \"$$f\" ]; then
+              base=$$(basename \"$$f\");
+              ln -sf \"$$f\" \"/usr/lib/aarch64-linux-gnu/$$base\" 2>/dev/null || true;
+            fi;
+          done;
+        fi &&
+        ldconfig &&
+        mkdir -p /root/ros2_ws/src/unitree_converse/wheels &&
+        if ls /root/ros2_ws/src/unitree_converse/wheels/ctranslate2*cp310*.whl 1> /dev/null 2>&1; then
+          echo 'Found cached Python 3.10 CUDA+cuDNN CTranslate2 wheel, installing...' &&
+          cp -P /root/ros2_ws/src/unitree_converse/wheels/libctranslate2* /usr/local/lib/ 2>/dev/null || true &&
+          ldconfig &&
+          python3 -m pip install --no-deps --force-reinstall /root/ros2_ws/src/unitree_converse/wheels/ctranslate2*cp310*.whl;
         else
-          printf '<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"%s\"/></Interfaces></General></Domain></CycloneDDS>\n' \"$$ROBOT_IFACE\" > /tmp/cyclonedds.xml &&
-          export CYCLONEDDS_URI=file:///tmp/cyclonedds.xml;
+          echo 'Compiling CUDA+cuDNN CTranslate2 inside container for Jetson Orin (Python 3.10 / CUDA 12)...' &&
+          rm -rf /tmp/ctranslate2_build &&
+          git clone --recursive --branch v4.4.0 --depth 1 https://github.com/OpenNMT/CTranslate2.git /tmp/ctranslate2_build &&
+          mkdir -p /tmp/ctranslate2_build/build && cd /tmp/ctranslate2_build/build &&
+          cmake .. -DWITH_CUDA=ON -DWITH_CUDNN=ON -DCUDA_DYNAMIC_LOADING=ON -DBUILD_CLI=OFF -DBUILD_TESTS=OFF -DCUDNN_INCLUDE_DIR=/usr/include -DWITH_MKL=OFF -DOPENMP_RUNTIME=COMP -DCMAKE_CUDA_ARCHITECTURES=87 -DCUDA_ARCH_LIST=8.7 -DCMAKE_INSTALL_PREFIX=/usr/local &&
+          make -j$$(nproc) &&
+          make install &&
+          ldconfig &&
+          cd /tmp/ctranslate2_build/python &&
+          export CTRANSLATE2_ROOT=/usr/local &&
+          pip3 install -r install_requirements.txt || true &&
+          python3 setup.py bdist_wheel &&
+          cp dist/*.whl /root/ros2_ws/src/unitree_converse/wheels/ &&
+          cp -P /usr/local/lib/libctranslate2* /root/ros2_ws/src/unitree_converse/wheels/ 2>/dev/null || true &&
+          pip3 install --no-deps --force-reinstall dist/*.whl &&
+          rm -rf /tmp/ctranslate2_build &&
+          echo 'CUDA+cuDNN CTranslate2 (cp310) build complete and saved to wheels/!';
         fi &&
         source /opt/ros/humble/setup.bash &&
         if [ -f /root/unitree_ros2_ws/install/setup.bash ]; then
@@ -44,6 +120,6 @@ services:
         cd /root/ros2_ws &&
         colcon build --symlink-install &&
         source install/setup.bash &&
-        echo \"Starting unitree_converse voice pipeline on robot (interface: $$ROBOT_IFACE)...\" &&
+        echo 'Starting unitree_converse voice pipeline on robot (interface: enP8p1s0)...' &&
         ros2 launch g1_voice voice_real.launch.py
       "

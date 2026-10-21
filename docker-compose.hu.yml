@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.humble
+      network: host
     image: unitree_converse:latest
     container_name: unitree_converse_hu
     runtime: nvidia
@@ -15,6 +16,7 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - 'CYCLONEDDS_URI=<CycloneDDS><Domain><General><Interfaces><NetworkInterface name="enP8p1s0"/></Interfaces></General></Domain></CycloneDDS>'
       - LLM_API_MODEL=qwen2.5:3b
       - PYTHONUNBUFFERED=1
       - PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -36,14 +38,7 @@ services:
       bash -c "
         export LANG=C.UTF-8 &&
         export LC_ALL=C.UTF-8 &&
-        ROBOT_IFACE=$$(ip -4 -o addr show | awk '/192\\.168\\.123\\./ {print $$2; exit}') &&
-        ROBOT_IFACE=$${ROBOT_IFACE:-enP8p1s0} &&
-        if [ -f /home/unitree/cyclonedds_ws/cyclonedds.xml ]; then
-          export CYCLONEDDS_URI=/home/unitree/cyclonedds_ws/cyclonedds.xml;
-        else
-          printf '<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"%s\"/></Interfaces></General></Domain></CycloneDDS>\n' \"$$ROBOT_IFACE\" > /tmp/cyclonedds.xml &&
-          export CYCLONEDDS_URI=file:///tmp/cyclonedds.xml;
-        fi &&
+        python3 -m pip install --no-cache-dir 'onnxruntime<1.20.0' &&
         mkdir -p /usr/local/cuda &&
         for d in bin lib64 nvvm share; do
           if [ -d \"/host_cuda/$$d\" ] && [ ! -e \"/usr/local/cuda/$$d\" ]; then
@@ -137,6 +132,6 @@ services:
         cd /root/ros2_ws &&
         colcon build --symlink-install &&
         source install/setup.bash &&
-        echo \"Starting Hungarian unitree_converse voice pipeline on robot (interface: $$ROBOT_IFACE)...\" &&
+        echo 'Starting Hungarian unitree_converse voice pipeline on robot (interface: enP8p1s0)...' &&
         ros2 launch g1_voice voice_real.launch.py params_file:=/root/ros2_ws/install/g1_voice/share/g1_voice/config/voice_params_real_hu.yaml
       "

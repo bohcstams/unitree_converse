@@ -27,11 +27,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Upgrade pip and keep setuptools < 70 for colcon compatibility
 RUN python3 -m pip install --no-cache-dir --upgrade pip "setuptools<70.0.0" wheel
 
-# Python audio, STT, TTS, and LLM dependencies
+# Python audio, STT, TTS, and LLM dependencies (pin onnxruntime<1.20 to avoid Jetson Orin cpuid_info vector assertion crash)
 RUN python3 -m pip install --no-cache-dir \
+    "onnxruntime<1.20.0" \
     requests \
     openwakeword \
-    faster-whisper \
+    "faster-whisper<=1.0.3" \
     sounddevice \
     soundfile \
     tqdm \
