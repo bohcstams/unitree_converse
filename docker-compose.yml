@@ -82,7 +82,12 @@ services:
               base=$$(basename \"$$f\");
               ln -sf \"$$f\" \"/usr/lib/aarch64-linux-gnu/$$base\" 2>/dev/null || true;
             fi;
-          done;
+          done &&
+          REAL_CUDNN=$$(ls /host_lib/libcudnn.so.*.* 2>/dev/null | head -n 1) &&
+          if [ -n \"$$REAL_CUDNN\" ]; then
+            ln -sf \"$$REAL_CUDNN\" /usr/lib/aarch64-linux-gnu/libcudnn.so;
+            ln -sf \"$$REAL_CUDNN\" /usr/local/cuda/lib64/libcudnn.so 2>/dev/null || true;
+          fi;
         fi &&
         ldconfig &&
         mkdir -p /root/ros2_ws/src/unitree_converse/wheels &&
@@ -96,7 +101,7 @@ services:
           rm -rf /tmp/ctranslate2_build &&
           git clone --recursive --branch v4.4.0 --depth 1 https://github.com/OpenNMT/CTranslate2.git /tmp/ctranslate2_build &&
           mkdir -p /tmp/ctranslate2_build/build && cd /tmp/ctranslate2_build/build &&
-          cmake .. -DWITH_CUDA=ON -DWITH_CUDNN=ON -DCUDA_DYNAMIC_LOADING=ON -DBUILD_CLI=OFF -DBUILD_TESTS=OFF -DCUDNN_INCLUDE_DIR=/usr/include -DWITH_MKL=OFF -DOPENMP_RUNTIME=COMP -DCMAKE_CUDA_ARCHITECTURES=87 -DCUDA_ARCH_LIST=8.7 -DCMAKE_INSTALL_PREFIX=/usr/local &&
+          cmake .. -DWITH_CUDA=ON -DWITH_CUDNN=ON -DCUDA_DYNAMIC_LOADING=ON -DBUILD_CLI=OFF -DBUILD_TESTS=OFF -DCUDNN_INCLUDE_DIR=/usr/include -DCUDNN_LIBRARIES=/usr/lib/aarch64-linux-gnu/libcudnn.so -DWITH_MKL=OFF -DOPENMP_RUNTIME=COMP -DCMAKE_CUDA_ARCHITECTURES=87 -DCUDA_ARCH_LIST=8.7 -DCMAKE_INSTALL_PREFIX=/usr/local &&
           make -j$$(nproc) &&
           make install &&
           ldconfig &&
