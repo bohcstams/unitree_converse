@@ -38,7 +38,6 @@ services:
       bash -c "
         export LANG=C.UTF-8 &&
         export LC_ALL=C.UTF-8 &&
-        python3 -m pip install --no-cache-dir 'onnxruntime<1.20.0' &&
         mkdir -p /usr/local/cuda &&
         for d in bin lib64 nvvm share; do
           if [ -d \"/host_cuda/$$d\" ] && [ ! -e \"/usr/local/cuda/$$d\" ]; then

@@ -169,6 +169,13 @@ class STTNode(Node):
 
         # Volume normalization boosts quiet/distant speech so Whisper transcribes it accurately
         max_amp = float(np.max(np.abs(audio_data)))
+        rms_amp = float(np.sqrt(np.mean(audio_data**2)))
+        if max_amp < 0.005 or rms_amp < (self.silence_threshold * 0.5):
+            self.get_logger().info('Audio below speech threshold — skipping transcription')
+            self._publish_status('idle')
+            self.is_recording = False
+            return
+
         if max_amp > 0.005:
             audio_data = (audio_data / max_amp) * 0.95
 
@@ -178,8 +185,8 @@ class STTNode(Node):
                 language=self.language,
                 beam_size=self.beam_size,
                 initial_prompt=self.initial_prompt if self.initial_prompt else None,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=500, threshold=0.35)
+                vad_filter=False,
+                condition_on_previous_text=False
             )
 
             transcript = ' '.join([seg.text.strip() for seg in segments]).strip()
