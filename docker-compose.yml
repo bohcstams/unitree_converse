@@ -1,10 +1,8 @@
-version: '2.4'
-
 services:
   unitree_converse:
     build:
       context: .
-      dockerfile: Dockerfile.foxy
+      dockerfile: Dockerfile.humble
     image: unitree_converse:latest
     container_name: unitree_converse
     runtime: nvidia
@@ -17,21 +15,26 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-      - CYCLONEDDS_URI=/home/unitree/cyclonedds_ws/cyclonedds.xml
-      - LLM_API_MODEL=qwen2.5:7b-instruct-q4_K_M
+      - LLM_API_MODEL=qwen2.5:3b
       - PYTHONUNBUFFERED=1
     volumes:
       # Mount codebase into the ROS2 workspace
       - .:/root/ros2_ws/src/unitree_converse
       # Shared memory for CycloneDDS
       - /dev/shm:/dev/shm
-      # Unitree SDK2 for g1_piper_tts audio playback binary
-      - /home/unitree/unitree_sdk2_latest:/home/unitree/unitree_sdk2_latest:ro
-      # CycloneDDS configuration from host (if available)
-      - /home/unitree/cyclonedds_ws:/home/unitree/cyclonedds_ws:ro
+      # Mount /home/unitree so g1_piper_tts binary and cyclonedds_ws are accessible if present
+      - /home/unitree:/home/unitree:ro
     command: >
       bash -c "
-        source /opt/ros/foxy/setup.bash &&
+        ROBOT_IFACE=$$(ip -4 -o addr show | awk '/192\\.168\\.123\\./ {print $$2; exit}') &&
+        ROBOT_IFACE=$${ROBOT_IFACE:-enP8p1s0} &&
+        if [ -f /home/unitree/cyclonedds_ws/cyclonedds.xml ]; then
+          export CYCLONEDDS_URI=/home/unitree/cyclonedds_ws/cyclonedds.xml;
+        else
+          printf '<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"%s\"/></Interfaces></General></Domain></CycloneDDS>\n' \"$$ROBOT_IFACE\" > /tmp/cyclonedds.xml &&
+          export CYCLONEDDS_URI=file:///tmp/cyclonedds.xml;
+        fi &&
+        source /opt/ros/humble/setup.bash &&
         if [ -f /root/unitree_ros2_ws/install/setup.bash ]; then
           source /root/unitree_ros2_ws/install/setup.bash;
         fi &&
@@ -41,6 +44,6 @@ services:
         cd /root/ros2_ws &&
         colcon build --symlink-install &&
         source install/setup.bash &&
-        echo 'Starting unitree_converse voice pipeline on robot...' &&
+        echo \"Starting unitree_converse voice pipeline on robot (interface: $$ROBOT_IFACE)...\" &&
         ros2 launch g1_voice voice_real.launch.py
       "

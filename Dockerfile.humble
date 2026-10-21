@@ -2,28 +2,33 @@ FROM ros:humble-ros-base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Core build tools, networking and audio libraries
-RUN apt-get update && apt-get install -y \
+# Core build tools, networking, DDS, and audio libraries
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     git \
     curl \
+    wget \
+    iproute2 \
     python3-pip \
+    python3-dev \
     python3-colcon-common-extensions \
     ros-humble-rmw-cyclonedds-cpp \
     ros-humble-rosidl-generator-dds-idl \
     libyaml-cpp-dev \
+    libopenblas-dev \
     sox \
     libsox-fmt-all \
     portaudio19-dev \
     alsa-utils \
+    espeak-ng-data \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip to fix the Ubuntu 22.04 resolvelib AssertionError bug
-RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
+# Upgrade pip and keep setuptools < 70 for colcon compatibility
+RUN python3 -m pip install --no-cache-dir --upgrade pip "setuptools<70.0.0" wheel
 
-# Python audio, STT, and TTS dependencies
-RUN pip3 install --no-cache-dir \
+# Python audio, STT, TTS, and LLM dependencies
+RUN python3 -m pip install --no-cache-dir \
     requests \
     openwakeword \
     faster-whisper \
@@ -31,14 +36,37 @@ RUN pip3 install --no-cache-dir \
     soundfile \
     tqdm \
     filelock \
+    rich \
+    prompt_toolkit \
     piper-tts
 
-# Pre-cache faster-whisper base model (CPU int8) so it doesn't download at runtime
+# Install Piper standalone binary (supports aarch64/Jetson and x86_64)
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "arm64" ]; then PIPER_ARCH="aarch64"; else PIPER_ARCH="x86_64"; fi && \
+    curl -L -o piper.tar.gz https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_${PIPER_ARCH}.tar.gz && \
+    tar -xzf piper.tar.gz -C /tmp && \
+    cp /tmp/piper/piper /usr/local/bin/piper && \
+    cp /tmp/piper/lib* /usr/local/lib/ 2>/dev/null || true && \
+    cp -r /tmp/piper/espeak-ng-data /usr/share/espeak-ng-data 2>/dev/null || true && \
+    ldconfig && \
+    rm -rf piper.tar.gz /tmp/piper
+
+# Pre-cache faster-whisper base model so it doesn't download at runtime
 RUN python3 -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
 
-# Download English Piper TTS voice model and its config
+# Download English and Hungarian Piper TTS voice models
 RUN mkdir -p /root/.local/share/piper && cd /root/.local/share/piper && \
     curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx && \
-    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json && \
+    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/imre/medium/hu_HU-imre-medium.onnx && \
+    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/imre/medium/hu_HU-imre-medium.onnx.json && \
+    mkdir -p /home/unitree/.local/share && \
+    ln -sfn /root/.local/share/piper /home/unitree/.local/share/piper
+
+# Pre-build Unitree ROS2 messages for Humble
+RUN mkdir -p /root/unitree_ros2_ws/src && cd /root/unitree_ros2_ws/src && \
+    git clone https://github.com/unitreerobotics/unitree_ros2.git && \
+    cd /root/unitree_ros2_ws && \
+    /bin/bash -c "source /opt/ros/humble/setup.bash && colcon build --packages-select unitree_go unitree_api unitree_hg"
 
 WORKDIR /root/ros2_ws

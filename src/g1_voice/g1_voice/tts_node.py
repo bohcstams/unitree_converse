@@ -24,6 +24,8 @@ class TTSNode(Node):
         self.declare_parameter('output_sample_rate', 44100)
         self.declare_parameter('tts_mode', 'python')  # 'python' or 'binary'
         self.declare_parameter('piper_binary', '/usr/local/bin/piper')
+        self.declare_parameter('network_interface', '')
+        self.declare_parameter('tts_binary', '/home/unitree/unitree_sdk2_latest/build/bin/g1_piper_tts')
 
         self.model_path = self.get_parameter('voice_model_path').get_parameter_value().string_value
         self.use_cuda = self.get_parameter('use_cuda').get_parameter_value().bool_value
@@ -31,6 +33,8 @@ class TTSNode(Node):
         self.output_sample_rate = self.get_parameter('output_sample_rate').get_parameter_value().integer_value
         self.tts_mode = self.get_parameter('tts_mode').get_parameter_value().string_value
         self.piper_binary = self.get_parameter('piper_binary').get_parameter_value().string_value
+        self.network_interface = self.get_parameter('network_interface').get_parameter_value().string_value
+        self.tts_binary = self.get_parameter('tts_binary').get_parameter_value().string_value
 
         if self.output_device == -1:
             self.output_device = self._resolve_default_output()
@@ -156,10 +160,44 @@ class TTSNode(Node):
         sd.wait()
         self.get_logger().info('Playback complete')
 
-    def _speak_binary(self, text: str):
-        cmd = [
+    def _resolve_robot_interface(self) -> str:
+        if self.network_interface:
+            return self.network_interface
+        try:
+            res = subprocess.run(
+                ['ip', '-4', '-o', 'addr', 'show'],
+                capture_output=True, text=True, timeout=2
+            )
+            for line in res.stdout.splitlines():
+                if '192.168.123.' in line:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return parts[1]
+        except Exception:
+            pass
+        if os.path.exists('/sys/class/net/enP8p1s0'):
+            return 'enP8p1s0'
+        return 'eth0'
+
+    def _resolve_tts_binary(self) -> str:
+        candidates = [
+            self.tts_binary,
+            '/usr/local/bin/g1_piper_tts',
             '/home/unitree/unitree_sdk2_latest/build/bin/g1_piper_tts',
-            'eth0',
+            '/home/unitree/unitree_sdk2-main/build/bin/g1_piper_tts',
+            '/home/unitree/ObjectPicking/aut-o-mate/unitree_sdk2/build/bin/g1_piper_tts',
+        ]
+        for path in candidates:
+            if path and os.path.isfile(path):
+                return path
+        return self.tts_binary
+
+    def _speak_binary(self, text: str):
+        iface = self._resolve_robot_interface()
+        binary = self._resolve_tts_binary()
+        cmd = [
+            binary,
+            iface,
             self.model_path,
         ]
         result = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=60)
