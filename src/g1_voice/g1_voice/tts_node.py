@@ -82,7 +82,14 @@ class TTSNode(Node):
     def response_callback(self, msg: String):
         try:
             data = json.loads(msg.data)
-            reply = data.get('reply', '').strip() if isinstance(data, dict) else msg.data.strip()
+            if isinstance(data, dict):
+                actions = data.get('actions', [])
+                if isinstance(actions, list) and len(actions) > 0:
+                    self.get_logger().info('Action turn detected; deferring spoken feedback to action_dispatcher_node')
+                    return
+                reply = data.get('reply', '').strip()
+            else:
+                reply = msg.data.strip()
         except (json.JSONDecodeError, KeyError):
             reply = msg.data.strip()
 

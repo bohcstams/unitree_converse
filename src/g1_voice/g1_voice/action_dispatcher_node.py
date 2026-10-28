@@ -11,6 +11,30 @@ import yaml
 
 
 DEFAULT_FALLBACK_PHRASES = {
+    'accepted': {
+        'hu': [
+            'Rendben, máris csinálom.',
+            'Értettem, máris nekilátok.',
+            'Megtaláltam a tárgyat, máris csinálom.',
+        ],
+        'en': [
+            "Alright, I'll do it right away.",
+            "Got it, I'll do it right away.",
+            'I see the object, doing it right away.',
+        ],
+    },
+    'not_found': {
+        'hu': [
+            'Sajnos nem találom a tárgyat.',
+            'Nem látom ezt a tárgyat az asztalon.',
+            'Sajnos nem találom a kért tárgyat.',
+        ],
+        'en': [
+            "I can't find the object.",
+            "Sorry, I can't see that object on the table.",
+            "I can't find the requested object.",
+        ],
+    },
     'completion': {
         'hu': [
             'Kész vagyok! Mi a következő kérésed?',
@@ -22,10 +46,10 @@ DEFAULT_FALLBACK_PHRASES = {
         'en': [
             "I'm done! What's the next request?",
             "I've completed the task. What should I do next?",
-            "All done! How else can I help?",
-            "The objects are in place. What is the next task?",
-            "Action finished! Ready for the next command.",
-        ]
+            'All done! How else can I help?',
+            'The objects are in place. What is the next task?',
+            'Action finished! Ready for the next command.',
+        ],
     },
     'error': {
         'hu': [
@@ -35,22 +59,50 @@ DEFAULT_FALLBACK_PHRASES = {
         'en': [
             'Sorry, I was unable to complete the task.',
             'An error occurred while executing the action.',
-        ]
-    }
+        ],
+    },
+}
+
+# Generic placement surfaces that do not require a specific YOLO object bounding box
+SURFACE_TARGETS = {'table', 'asztal', 'desk', 'surface'}
+
+# Canonical object aliases so e.g. "box" matches "black_box" and "cup"/"glass" matches "glass_cup"
+TARGET_ALIASES = {
+    'box': ['black_box', 'box'],
+    'black_box': ['black_box', 'box'],
+    'cup': ['glass_cup', 'cup', 'mug'],
+    'glass': ['glass_cup', 'cup'],
+    'glass_cup': ['glass_cup', 'cup'],
+    'mug': ['mug', 'cup'],
+    'pen': ['pen'],
+    'cube': ['rubiks_cube', 'red_cube', 'blue_cube'],
+    'rubiks_cube': ['rubiks_cube'],
+    'sunglasses': ['sunglasses', 'glasses'],
+    'paddle': ['ping_pong_paddle'],
+    'ping_pong_paddle': ['ping_pong_paddle'],
+    'headset': ['headset', 'headphones'],
 }
 
 
 class ActionDispatcherNode(Node):
     """
-    Subscribes to 'llm_response', parses structured action plans from the LLM,
-    publishes action commands to robot manipulation controllers, and triggers
-    spoken voice confirmation upon action completion in the configured language.
+    Subscribes to:
+      - 'llm_response': structured JSON action plans from the LLM
+      - '/g1/vision/detections': latest detected objects & 2D bounding boxes from g1_vision
+      - '/g1/action/status': completion/error status from the motion planner
+
+    When an action command arrives:
+      1. Looks up the requested target object(s) in the latest vision detections.
+      2. If a required object is not visible, speaks "I can't find the object" /
+         "Sajnos nem találom a tárgyat" and aborts dispatch.
+      3. If found, speaks "Alright, I'll do it right away" / "Rendben, máris csinálom",
+         enriches each action item with its 2D bounding box / vision metadata, and
+         publishes the enriched plan to '/g1/action/commands' for the motion planner.
     """
 
     def __init__(self):
         super().__init__('action_dispatcher_node')
 
-        # Determine default phrases file location
         try:
             pkg_share = get_package_share_directory('g1_voice')
             default_phrases_file = os.path.join(pkg_share, 'config', 'feedback_phrases.yaml')
@@ -59,27 +111,42 @@ class ActionDispatcherNode(Node):
 
         self.declare_parameter('language', 'hu')
         self.declare_parameter('phrases_file', default_phrases_file)
+        self.declare_parameter('detections_topic', '/g1/vision/detections')
         self.declare_parameter('auto_listen_after_done', False)
         self.declare_parameter('simulate_execution_sec', 0.0)
 
         self.language = self.get_parameter('language').value
         self.phrases_file = self.get_parameter('phrases_file').value
+        self.detections_topic = self.get_parameter('detections_topic').value
         self.auto_listen = self.get_parameter('auto_listen_after_done').value
         self.simulate_sec = self.get_parameter('simulate_execution_sec').value
 
         # Load response phrases pool
         self.phrases = self._load_phrases()
 
+        # Latest vision detections state (thread-safe)
+        self._vision_lock = threading.Lock()
+        self._latest_detections = []
+        self._latest_frame_id = 'camera_color_optical_frame'
+        self._latest_image_size = {'width': 640, 'height': 480}
+        self._latest_vision_timestamp = None
+
+        # Subscribe to vision detections from g1_vision
+        self.vision_sub = self.create_subscription(
+            String, self.detections_topic, self._vision_detections_callback, 10
+        )
+
         # Listen to LLM response containing JSON with "reply" and "actions"
         self.llm_sub = self.create_subscription(
-            String, 'llm_response', self._llm_response_callback, 10)
+            String, 'llm_response', self._llm_response_callback, 10
+        )
 
         # Listen to execution status updates from manipulation / motion controllers
-        # Controllers publish "DONE", "SUCCESS", "ERROR", etc.
         self.status_sub = self.create_subscription(
-            String, '/g1/action/status', self._action_status_callback, 10)
+            String, '/g1/action/status', self._action_status_callback, 10
+        )
 
-        # Publish parsed action list to motion planner / arm controllers
+        # Publish enriched action list to motion planner / arm controllers
         self.commands_pub = self.create_publisher(String, '/g1/action/commands', 10)
 
         # Publish speech requests to TTS (speaks through robot head speaker)
@@ -92,34 +159,37 @@ class ActionDispatcherNode(Node):
         self.current_plan = []
 
         self.get_logger().info(
-            f'Action dispatcher node ready — language: {self.language}, listening on llm_response')
+            f'Action dispatcher node ready — language: {self.language}, '
+            f'listening on llm_response and {self.detections_topic}'
+        )
 
     def _load_phrases(self) -> dict:
-        """Load feedback phrases from YAML file, with automatic fallback."""
+        """Load feedback phrases from YAML file, merging with defaults."""
         candidates = []
         if self.phrases_file:
             candidates.append(self.phrases_file)
 
-        # Also check source directory path in case of container mount
         src_path = '/root/ros2_ws/src/unitree_converse/src/g1_voice/config/feedback_phrases.yaml'
         candidates.append(src_path)
 
         local_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'feedback_phrases.yaml')
         candidates.append(local_path)
 
+        merged = dict(DEFAULT_FALLBACK_PHRASES)
         for path in candidates:
             if path and os.path.isfile(path):
                 try:
                     with open(path, 'r', encoding='utf-8') as f:
                         data = yaml.safe_load(f)
                     if isinstance(data, dict):
+                        merged.update(data)
                         self.get_logger().info(f'Loaded feedback phrases from: {path}')
-                        return data
+                        return merged
                 except Exception as e:
                     self.get_logger().warn(f'Failed to parse phrases file {path}: {e}')
 
         self.get_logger().info('Using built-in default feedback phrases')
-        return DEFAULT_FALLBACK_PHRASES
+        return merged
 
     def _get_random_phrase(self, category: str) -> str:
         """Pick a random phrase for the category and configured language."""
@@ -127,13 +197,78 @@ class ActionDispatcherNode(Node):
         pool = lang_dict.get(self.language)
 
         if not pool:
-            # Fallback to English, then to any available language in the category
             pool = lang_dict.get('en') or next(iter(lang_dict.values()), None)
 
         if pool and isinstance(pool, list):
             return random.choice(pool)
 
-        return "I'm done! What's the next request?"
+        return DEFAULT_FALLBACK_PHRASES.get(category, {}).get(self.language, ["Alright."])[0]
+
+    def _speak_phrase(self, category: str):
+        """Select a random phrase from category and publish it to /g1/tts/say."""
+        phrase = self._get_random_phrase(category)
+        self.get_logger().info(f'Speaking ({category}, {self.language}): "{phrase}"')
+        say_msg = String()
+        say_msg.data = phrase
+        self.say_pub.publish(say_msg)
+
+    def _vision_detections_callback(self, msg: String):
+        """Store the latest object detections from /g1/vision/detections."""
+        try:
+            data = json.loads(msg.data)
+        except json.JSONDecodeError:
+            return
+
+        if not isinstance(data, dict):
+            return
+
+        detections = data.get('detections', [])
+        if not isinstance(detections, list):
+            return
+
+        with self._vision_lock:
+            self._latest_detections = detections
+            self._latest_frame_id = data.get('frame_id', 'camera_color_optical_frame')
+            self._latest_image_size = data.get('image_size', {'width': 640, 'height': 480})
+            self._latest_vision_timestamp = data.get('timestamp')
+
+    def _find_object_in_detections(self, target_name: str):
+        """
+        Find the best (highest-confidence) detection matching `target_name`
+        in the latest vision detections list.
+        """
+        norm_target = target_name.strip().lower().replace(' ', '_')
+        candidate_names = TARGET_ALIASES.get(norm_target, [norm_target])
+
+        with self._vision_lock:
+            detections = list(self._latest_detections)
+            frame_id = self._latest_frame_id
+            image_size = dict(self._latest_image_size)
+            timestamp = self._latest_vision_timestamp
+
+        # 1. Check exact / alias match in priority order
+        for candidate in candidate_names:
+            matches = [
+                d for d in detections
+                if isinstance(d, dict) and str(d.get('name', '')).strip().lower().replace(' ', '_') == candidate
+            ]
+            if matches:
+                best = max(matches, key=lambda d: float(d.get('confidence', 0.0)))
+                return best, frame_id, image_size, timestamp
+
+        # 2. Fallback: substring match (e.g. "box" in "black_box")
+        substring_matches = [
+            d for d in detections
+            if isinstance(d, dict) and (
+                norm_target in str(d.get('name', '')).strip().lower().replace(' ', '_')
+                or str(d.get('name', '')).strip().lower().replace(' ', '_') in norm_target
+            )
+        ]
+        if substring_matches:
+            best = max(substring_matches, key=lambda d: float(d.get('confidence', 0.0)))
+            return best, frame_id, image_size, timestamp
+
+        return None, frame_id, image_size, timestamp
 
     def _llm_response_callback(self, msg: String):
         try:
@@ -151,15 +286,58 @@ class ActionDispatcherNode(Node):
             return
 
         self.get_logger().info(f'Parsed {len(actions)} action(s) from LLM: {actions}')
-        self.current_plan = actions
+
+        enriched_actions = []
+        for step in actions:
+            if not isinstance(step, dict):
+                continue
+            action_type = str(step.get('action', '')).strip().lower()
+            target = str(step.get('target', '')).strip()
+            norm_target = target.lower().replace(' ', '_')
+
+            enriched_step = dict(step)
+
+            # Generic surfaces like "table" do not require a YOLO object bounding box
+            if not norm_target or norm_target in SURFACE_TARGETS:
+                enriched_step['target_type'] = 'surface'
+                enriched_actions.append(enriched_step)
+                continue
+
+            matched_det, frame_id, image_size, timestamp = self._find_object_in_detections(norm_target)
+            if matched_det is None:
+                with self._vision_lock:
+                    visible_names = [d.get('name') for d in self._latest_detections if isinstance(d, dict)]
+                self.get_logger().warn(
+                    f'Requested target "{target}" for action "{action_type}" not found in vision detections '
+                    f'(currently visible: {visible_names}).'
+                )
+                self._speak_phrase('not_found')
+                return
+
+            enriched_step['target_type'] = 'object'
+            enriched_step['detection'] = matched_det
+            enriched_step['frame_id'] = frame_id
+            enriched_step['image_size'] = image_size
+            if timestamp is not None:
+                enriched_step['vision_timestamp'] = timestamp
+            enriched_actions.append(enriched_step)
+
+        if not enriched_actions:
+            return
+
+        # All required objects were found! Speak confirmation ("Alright, I'll do it right away")
+        self._speak_phrase('accepted')
+
+        self.current_plan = enriched_actions
         self.is_busy = True
 
-        # Forward formatted action commands to robot motion controller
+        # Forward enriched action plan (with bounding boxes & coordinates) to motion planner
         cmd_msg = String()
-        cmd_msg.data = json.dumps(actions, ensure_ascii=False)
+        cmd_msg.data = json.dumps(enriched_actions, ensure_ascii=False)
         self.commands_pub.publish(cmd_msg)
+        self.get_logger().info(f'Dispatched enriched action plan to /g1/action/commands: {cmd_msg.data}')
 
-        # If simulated execution is requested (e.g. testing without physical arm hardware):
+        # If simulated execution is requested (e.g. testing without physical arm controller):
         if self.simulate_sec > 0:
             threading.Thread(target=self._simulate_execution, args=(self.simulate_sec,), daemon=True).start()
 
@@ -183,12 +361,7 @@ class ActionDispatcherNode(Node):
         self.current_plan = []
 
         category = 'completion' if success else 'error'
-        phrase = self._get_random_phrase(category)
-
-        self.get_logger().info(f'Speaking completion announcement ({self.language}): "{phrase}"')
-        say_msg = String()
-        say_msg.data = phrase
-        self.say_pub.publish(say_msg)
+        self._speak_phrase(category)
 
         if self.auto_listen and success:
             threading.Thread(target=self._delayed_trigger, args=(3.0,), daemon=True).start()

@@ -1,3 +1,23 @@
+accepted:
+  hu:
+    - "Rendben, máris csinálom."
+    - "Értettem, máris nekilátok."
+    - "Megtaláltam a tárgyat, máris csinálom."
+  en:
+    - "Alright, I'll do it right away."
+    - "Got it, I'll do it right away."
+    - "I see the object, doing it right away."
+
+not_found:
+  hu:
+    - "Sajnos nem találom a tárgyat."
+    - "Nem látom ezt a tárgyat az asztalon."
+    - "Sajnos nem találom a kért tárgyat."
+  en:
+    - "I can't find the object."
+    - "Sorry, I can't see that object on the table."
+    - "I can't find the requested object."
+
 completion:
   hu:
     - "Kész vagyok! Mi a következő kérésed?"
