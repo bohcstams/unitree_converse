@@ -23,7 +23,7 @@
     udp_multicast_group: "239.168.123.161"
     udp_port: 5555
     udp_local_ip: "192.168.123.164"
-    model_size: "small"
+    model_size: "medium"
     language: "hu"
     device: "cuda"
     compute_type: "float16"

@@ -99,7 +99,7 @@ services:
           source /home/unitree/cyclonedds_ws/install/setup.bash;
         fi &&
         mkdir -p /root/.local/share/piper &&
-        mkdir -p /home/unitree/.local/share &&
+        mkdir -p /home/unitree/.local/share 2>/dev/null || true &&
         if [ ! -e /home/unitree/.local/share/piper ]; then
           ln -sfn /root/.local/share/piper /home/unitree/.local/share/piper 2>/dev/null || true;
         fi &&
