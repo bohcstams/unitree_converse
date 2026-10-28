@@ -200,9 +200,33 @@ class TTSNode(Node):
             iface,
             self.model_path,
         ]
-        result = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=60)
+
+        # Build a clean environment for g1_piper_tts so it loads unitree_sdk2's
+        # bundled libddsc.so.0 / libddscxx.so.0 instead of ROS2 Humble's
+        # /opt/ros/humble/lib/aarch64-linux-gnu/libddsc.so.0 (which causes
+        # an ABI mismatch and 'free(): invalid pointer' crash).
+        env = os.environ.copy()
+        env.pop('CYCLONEDDS_URI', None)
+
+        sdk_root = os.path.abspath(os.path.join(os.path.dirname(binary), '..', '..'))
+        sdk_lib_dirs = [
+            os.path.join(sdk_root, 'thirdparty', 'lib', 'aarch64'),
+            os.path.join(sdk_root, 'lib', 'aarch64'),
+            '/home/unitree/unitree_sdk2_latest/thirdparty/lib/aarch64',
+            '/home/unitree/unitree_sdk2_latest/lib/aarch64',
+            '/home/unitree/ObjectPicking/aut-o-mate/unitree_sdk2/thirdparty/lib/aarch64',
+            '/usr/local/lib',
+            '/usr/lib/aarch64-linux-gnu',
+        ]
+        existing_ld = [
+            p for p in env.get('LD_LIBRARY_PATH', '').split(':')
+            if p and '/opt/ros' not in p
+        ]
+        env['LD_LIBRARY_PATH'] = ':'.join(sdk_lib_dirs + existing_ld)
+
+        result = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=60, env=env)
         if result.returncode != 0:
-            self.get_logger().error(f'g1_piper_tts error: {result.stderr}')
+            self.get_logger().error(f'g1_piper_tts error (exit {result.returncode}): {result.stderr}')
             return
         self.get_logger().info('Playback complete')
 
