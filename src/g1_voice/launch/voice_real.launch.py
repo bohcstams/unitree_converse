@@ -45,9 +45,6 @@ def generate_launch_description():
             name='llm_node',
             output='screen',
             parameters=[params_file],
-            remappings=[
-                ('llm_prompt', '/g1/stt/transcript'),
-            ],
         ),
 
         Node(

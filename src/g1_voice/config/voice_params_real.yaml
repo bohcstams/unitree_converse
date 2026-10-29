@@ -7,7 +7,7 @@
     system_prompt: "/root/ros2_ws/src/unitree_converse/src/g1_voice/config/system_prompt_en.txt"
     temperature: 0.2
     max_tokens: 120
-    max_history_length: 6
+    max_history_length: 3
     response_format: '{"type": "json_object"}'
     stream: false
 

@@ -32,6 +32,7 @@ class RobotStateNode(Node):
         self.battery_cycles = None
         self.imu_rpy = None
         self.mode = None
+        self.wifi_ip = self._detect_wifi_ip()
 
         # Subscribe to robot state topics
         try:
@@ -67,6 +68,53 @@ class RobotStateNode(Node):
 
         self.get_logger().info('Robot state node ready')
 
+    @staticmethod
+    def _detect_wifi_ip() -> str:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(0.2)
+            s.connect(('8.8.8.8', 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return 'not connected'
+
+    @staticmethod
+    def _is_state_query(text: str) -> bool:
+        import re
+        t = text.strip().lower()
+        if not t:
+            return False
+        patterns = [
+            r'\bbattery\b',
+            r'\bpercent(age)?\b',
+            r'\bcharg(e|ing|ed)\b',
+            r'\bvoltage\b',
+            r'\btemp(erature)?\b',
+            r'\buptime\b',
+            r'\bstatus\b',
+            r'\bhealth\b',
+            r'\borientation\b',
+            r'\bimu\b',
+            r'\bwifi\b',
+            r'\bip\s+address\b',
+            r'\bnetwork\b',
+            r'\bakk?umul[aá]tor',
+            r'\bakku',
+            r'\baksi',
+            r'\bt[öo]lt[öo]tts[eé]g',
+            r'\bt[öo]lt[eé]s',
+            r'\bsz[aá]zal[eé]k',
+            r'\bfesz[üu]lts[eé]g',
+            r'\bh[őo]m[eé]rs[eé]klet',
+            r'\bh[aá]ny\s+fok',
+            r'\b[üu]zemid[őo]',
+            r'\b[aá]llapot',
+            r'\bh[aá]l[oó]zat',
+        ]
+        return any(re.search(p, t) for p in patterns)
+
     def _bms_callback(self, msg):
         self.battery_soc = msg.soc
         self.battery_soh = msg.soh
@@ -87,18 +135,11 @@ class RobotStateNode(Node):
         self.mode = msg.mode
 
     def _get_system_info(self):
-        """Collect system info: IPs, uptime."""
-        info = {}
-
-        # Network IPs
-        try:
-            info['eth_ip'] = '192.168.123.164'
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(('8.8.8.8', 80))
-            info['wifi_ip'] = s.getsockname()[0]
-            s.close()
-        except Exception:
-            info['wifi_ip'] = 'not connected'
+        """Collect system info: IPs, uptime, active ROS2 nodes (in-memory, <0.1ms)."""
+        info = {
+            'eth_ip': '192.168.123.164',
+            'wifi_ip': self.wifi_ip,
+        }
 
         # Uptime
         try:
@@ -110,14 +151,9 @@ class RobotStateNode(Node):
         except Exception:
             info['uptime'] = 'unknown'
 
-        # ROS2 nodes
+        # ROS2 nodes count via in-memory DDS graph (no subprocess overhead)
         try:
-            result = subprocess.run(
-                ['ros2', 'node', 'list'],
-                capture_output=True, text=True, timeout=2
-            )
-            nodes = [n for n in result.stdout.strip().split('\n') if n]
-            info['ros_nodes'] = len(nodes)
+            info['ros_nodes'] = len(self.get_node_names())
         except Exception:
             info['ros_nodes'] = 'unknown'
 
@@ -154,30 +190,29 @@ class RobotStateNode(Node):
         lines.append(f'Network: eth {sys_info["eth_ip"]}, wifi {sys_info["wifi_ip"]}')
         lines.append(f'Uptime: {sys_info["uptime"]}')
         lines.append(f'Active ROS2 nodes: {sys_info["ros_nodes"]}')
-        lines.append(f'LLM: Ollama LLaMA 3.2 3B (local)')
-        lines.append(f'STT: faster-whisper base')
-        lines.append(f'TTS: Piper en_US-lessac-medium (Mate voice)')
         lines.append('[/ROBOT STATE]')
 
         return '\n'.join(lines)
 
     def _transcript_callback(self, msg: String):
-        """Intercept transcript, enrich with robot state, forward to LLM."""
+        """Intercept transcript, enrich with robot state only if asked, and forward to LLM."""
         transcript = msg.data.strip()
         if not transcript or transcript.upper().startswith('[VISION]'):
             return
 
-        state_context = self._build_state_context()
-        enriched = f"{state_context}\n\nUser: {transcript}"
-
         out = String()
-        out.data = enriched
-        self.prompt_pub.publish(out)
-
-        self.get_logger().info(f'Forwarded enriched prompt to LLM')
+        if self._is_state_query(transcript):
+            state_context = self._build_state_context()
+            out.data = f'{state_context}\nUser: {transcript}'
+            self.prompt_pub.publish(out)
+            self.get_logger().info('Forwarded state-enriched prompt to LLM')
+        else:
+            out.data = transcript
+            self.prompt_pub.publish(out)
 
     def _publish_state_summary(self):
         """Publish robot state summary every 30s."""
+        self.wifi_ip = self._detect_wifi_ip()
         state = self._build_state_context()
         msg = String()
         msg.data = state
