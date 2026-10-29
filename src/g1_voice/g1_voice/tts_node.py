@@ -117,9 +117,15 @@ class TTSNode(Node):
                 actions = data.get('actions', [])
                 if isinstance(actions, list) and len(actions) > 0:
                     self._last_prompt_is_vision_request = False
-                    self.get_logger().info('Action turn detected; deferring spoken feedback to action_dispatcher_node')
-                    return
-                if self._last_prompt_is_vision_request:
+                    is_list_objects = any(
+                        isinstance(a, dict)
+                        and str(a.get('action', '')).strip().lower() in ('list_objects', 'look', 'describe', 'scan')
+                        for a in actions
+                    )
+                    if not is_list_objects:
+                        self.get_logger().info('Action turn detected; deferring spoken feedback to action_dispatcher_node')
+                        return
+                elif self._last_prompt_is_vision_request:
                     self._last_prompt_is_vision_request = False
                     self.get_logger().info('Vision query turn detected; deferring spoken feedback to action_dispatcher_node')
                     return

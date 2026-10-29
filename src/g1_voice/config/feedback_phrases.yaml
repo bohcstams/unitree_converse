@@ -47,3 +47,53 @@ error:
   en:
     - "Sorry, I was unable to complete the task."
     - "An error occurred while executing the action."
+
+no_objects_seen:
+  hu:
+    - "Jelenleg nem látok semmilyen tárgyat az asztalon."
+    - "Nem látok egyetlen tárgyat sem az asztalon."
+  en:
+    - "I don't see any objects on the table right now."
+    - "I can't see any objects on the table."
+
+object_names:
+  hu:
+    mug: "bögrét"
+    glass_cup: "üvegpoharat"
+    cup: "poharat"
+    black_box: "fekete dobozt"
+    box: "dobozt"
+    pen: "tollat"
+    sunglasses: "napszemüveget"
+    glasses: "szemüveget"
+    rubiks_cube: "Rubik-kockát"
+    red_cube: "piros kockát"
+    blue_cube: "kék kockát"
+    cube: "kockát"
+    ping_pong_paddle: "pingpongütőt"
+    paddle: "pingpongütőt"
+    headset: "fejhallgatót"
+    headphones: "fejhallgatót"
+    bottle: "palackot"
+    phone: "telefont"
+    cell_phone: "telefont"
+  en:
+    mug: "a mug"
+    glass_cup: "a glass cup"
+    cup: "a cup"
+    black_box: "a black box"
+    box: "a box"
+    pen: "a pen"
+    sunglasses: "sunglasses"
+    glasses: "glasses"
+    rubiks_cube: "a Rubik's cube"
+    red_cube: "a red cube"
+    blue_cube: "a blue cube"
+    cube: "a cube"
+    ping_pong_paddle: "a ping pong paddle"
+    paddle: "a ping pong paddle"
+    headset: "a headset"
+    headphones: "headphones"
+    bottle: "a bottle"
+    phone: "a phone"
+    cell_phone: "a phone"

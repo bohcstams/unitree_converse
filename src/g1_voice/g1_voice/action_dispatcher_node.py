@@ -71,6 +71,60 @@ DEFAULT_FALLBACK_PHRASES = {
             'An error occurred while executing the action.',
         ],
     },
+    'no_objects_seen': {
+        'hu': [
+            'Jelenleg nem látok semmilyen tárgyat az asztalon.',
+            'Nem látok egyetlen tárgyat sem az asztalon.',
+        ],
+        'en': [
+            "I don't see any objects on the table right now.",
+            "I can't see any objects on the table.",
+        ],
+    },
+    'object_names': {
+        'hu': {
+            'mug': 'bögrét',
+            'glass_cup': 'üvegpoharat',
+            'cup': 'poharat',
+            'black_box': 'fekete dobozt',
+            'box': 'dobozt',
+            'pen': 'tollat',
+            'sunglasses': 'napszemüveget',
+            'glasses': 'szemüveget',
+            'rubiks_cube': 'Rubik-kockát',
+            'red_cube': 'piros kockát',
+            'blue_cube': 'kék kockát',
+            'cube': 'kockát',
+            'ping_pong_paddle': 'pingpongütőt',
+            'paddle': 'pingpongütőt',
+            'headset': 'fejhallgatót',
+            'headphones': 'fejhallgatót',
+            'bottle': 'palackot',
+            'phone': 'telefont',
+            'cell_phone': 'telefont',
+        },
+        'en': {
+            'mug': 'a mug',
+            'glass_cup': 'a glass cup',
+            'cup': 'a cup',
+            'black_box': 'a black box',
+            'box': 'a box',
+            'pen': 'a pen',
+            'sunglasses': 'sunglasses',
+            'glasses': 'glasses',
+            'rubiks_cube': "a Rubik's cube",
+            'red_cube': 'a red cube',
+            'blue_cube': 'a blue cube',
+            'cube': 'a cube',
+            'ping_pong_paddle': 'a ping pong paddle',
+            'paddle': 'a ping pong paddle',
+            'headset': 'a headset',
+            'headphones': 'headphones',
+            'bottle': 'a bottle',
+            'phone': 'a phone',
+            'cell_phone': 'a phone',
+        },
+    },
 }
 
 # Generic placement surfaces that do not require a specific YOLO object bounding box
@@ -107,10 +161,11 @@ class ActionDispatcherNode(Node):
       - '/g1/action/status': completion/error status from the motion planner
 
     When an action command arrives:
-      1. If action is 'list_objects', speaks the initial look-around reply (e.g.
-         "Hmm, let me take a look" / "Máris körülnézek") and sends the currently
-         detected English object names to the LLM via '[VISION]: <objects>' so the
-         LLM generates a natural spoken sentence listing the visible objects.
+      1. If action is 'list_objects', the LLM's look-around reply (e.g.
+         "Hmm, let me take a look" / "Máris körülnézek") is spoken by tts_node,
+         and action_dispatcher_node constructs and speaks the list of currently
+         detected objects (e.g. "I see a mug, a glass cup and a pen." /
+         "Egy bögrét, üvegpoharat és tollat látok.").
       2. Otherwise, looks up the requested target object(s) in the latest vision detections.
       3. If a required object is not visible, speaks "I can't find the object" /
          "Sajnos nem találom a tárgyat" and aborts dispatch.
@@ -151,7 +206,6 @@ class ActionDispatcherNode(Node):
         self._latest_frame_id = 'camera_color_optical_frame'
         self._latest_image_size = {'width': 640, 'height': 480}
         self._latest_vision_timestamp = None
-        self._awaiting_vision_reply = False
         self._last_prompt_is_vision_request = False
 
         # Subscribe to vision detections from g1_vision
@@ -179,9 +233,6 @@ class ActionDispatcherNode(Node):
 
         # Publish speech requests to TTS (speaks through robot head speaker)
         self.say_pub = self.create_publisher(String, '/g1/tts/say', 10)
-
-        # Publish follow-up [VISION]: prompts to the LLM node
-        self.llm_prompt_pub = self.create_publisher(String, self.llm_prompt_topic, 10)
 
         # Optional trigger to auto-activate microphone for next turn
         self.trigger_pub = self.create_publisher(Bool, '/g1/voice/trigger', 10)
@@ -217,10 +268,7 @@ class ActionDispatcherNode(Node):
 
     def _transcript_callback(self, msg: String):
         text = msg.data.strip()
-        if text.upper().startswith('[VISION]'):
-            self._last_prompt_is_vision_request = False
-        else:
-            self._last_prompt_is_vision_request = self._is_vision_query(text)
+        self._last_prompt_is_vision_request = self._is_vision_query(text)
 
     def _load_phrases(self) -> dict:
         """Load feedback phrases from YAML file, merging with defaults."""
@@ -278,8 +326,45 @@ class ActionDispatcherNode(Node):
         say_msg.data = phrase
         self.say_pub.publish(say_msg)
 
-    def _handle_list_objects(self):
-        """Collect unique detected object names and send a [VISION]: prompt to the LLM."""
+    def _translate_object_name(self, raw_name: str) -> str:
+        """Translate a canonical English YOLO object name into the configured language."""
+        norm = raw_name.strip().lower().replace(' ', '_')
+        obj_map = (
+            self.phrases.get('object_names', {}).get(self.language)
+            or DEFAULT_FALLBACK_PHRASES['object_names'].get(self.language, {})
+        )
+        if norm in obj_map:
+            return obj_map[norm]
+        clean = norm.replace('_', ' ')
+        if self.language == 'hu':
+            return clean
+        return f'a {clean}'
+
+    def _build_seen_objects_sentence(self, seen_names: list) -> str:
+        """Construct a natural sentence listing the detected objects in the configured language."""
+        if not seen_names:
+            return self._get_random_phrase('no_objects_seen')
+
+        translated = []
+        for name in seen_names:
+            t_name = self._translate_object_name(name)
+            if t_name and t_name not in translated:
+                translated.append(t_name)
+
+        if not translated:
+            return self._get_random_phrase('no_objects_seen')
+
+        if self.language == 'hu':
+            if len(translated) == 1:
+                return f'Egy {translated[0]} látok az asztalon.'
+            return f"Egy {', '.join(translated[:-1])} és {translated[-1]} látok."
+        else:
+            if len(translated) == 1:
+                return f'I see {translated[0]} on the table.'
+            return f"I see {', '.join(translated[:-1])} and {translated[-1]}."
+
+    def _handle_list_objects(self, delay_sec: float = 0.15):
+        """Build the spoken list of detected objects and publish it to /g1/tts/say."""
         with self._vision_lock:
             detections = list(self._latest_detections)
 
@@ -296,18 +381,17 @@ class ActionDispatcherNode(Node):
             if name and name not in seen_names:
                 seen_names.append(name)
 
-        if seen_names:
-            vision_query = f"[VISION]: {', '.join(seen_names)}"
-        else:
-            vision_query = '[VISION]: none'
-
-        self._awaiting_vision_reply = True
-        prompt_msg = String()
-        prompt_msg.data = vision_query
-        self.llm_prompt_pub.publish(prompt_msg)
+        sentence = self._build_seen_objects_sentence(seen_names)
         self.get_logger().info(
-            f'Sent detected objects to LLM ({self.llm_prompt_topic}): "{vision_query}"'
+            f'Detected objects {seen_names} -> speaking ({self.language}): "{sentence}"'
         )
+
+        def _delayed_say():
+            if delay_sec > 0:
+                time.sleep(delay_sec)
+            self._speak_text(sentence)
+
+        threading.Thread(target=_delayed_say, daemon=True).start()
 
     def _vision_detections_callback(self, msg: String):
         """Store the latest object detections from /g1/vision/detections."""
@@ -379,26 +463,14 @@ class ActionDispatcherNode(Node):
 
         actions = data.get('actions', [])
 
-        # Safeguard: if this response is the LLM's reply to our [VISION]: query,
-        # never trigger another action loop. If the LLM accidentally returned
-        # non-empty actions (meaning tts_node deferred speaking), speak the reply here.
-        if self._awaiting_vision_reply:
-            self._awaiting_vision_reply = False
-            self._last_prompt_is_vision_request = False
-            if isinstance(actions, list) and len(actions) > 0:
-                reply_text = str(data.get('reply', '')).strip()
-                if reply_text:
-                    self._speak_text(reply_text)
-            return
-
         if not actions or not isinstance(actions, list):
             if self._last_prompt_is_vision_request:
                 self._last_prompt_is_vision_request = False
                 self.get_logger().info(
-                    'Vision query detected via transcript fallback; speaking look-around phrase and querying [VISION]:'
+                    'Vision query detected via transcript fallback; speaking look-around phrase and listing objects'
                 )
                 self._speak_phrase('looking')
-                self._handle_list_objects()
+                self._handle_list_objects(delay_sec=0.15)
                 return
             self.get_logger().info('No actions requested in this turn (conversational turn).')
             return
@@ -406,17 +478,18 @@ class ActionDispatcherNode(Node):
         self._last_prompt_is_vision_request = False
         self.get_logger().info(f'Parsed {len(actions)} action(s) from LLM: {actions}')
 
-        # Check if the user asked what objects the robot sees ('list_objects')
+        # Check if the user asked what objects the robot sees ('list_objects').
+        # Note: tts_node already speaks the LLM's "reply" ("Máris körülnézek." /
+        # "Hmm, let me take a look.") directly from llm_response, so we only
+        # speak a fallback 'looking' phrase here if "reply" was empty.
         if any(
             isinstance(s, dict) and str(s.get('action', '')).strip().lower() in LIST_OBJECT_ACTIONS
             for s in actions
         ):
             reply_text = str(data.get('reply', '')).strip()
-            if reply_text:
-                self._speak_text(reply_text)
-            else:
+            if not reply_text:
                 self._speak_phrase('looking')
-            self._handle_list_objects()
+            self._handle_list_objects(delay_sec=0.15)
             return
 
         enriched_actions = []
