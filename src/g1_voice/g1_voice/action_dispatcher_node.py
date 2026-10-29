@@ -152,10 +152,16 @@ class ActionDispatcherNode(Node):
         self._latest_image_size = {'width': 640, 'height': 480}
         self._latest_vision_timestamp = None
         self._awaiting_vision_reply = False
+        self._last_prompt_is_vision_request = False
 
         # Subscribe to vision detections from g1_vision
         self.vision_sub = self.create_subscription(
             String, self.detections_topic, self._vision_detections_callback, 10
+        )
+
+        # Subscribe to user transcript to detect vision queries as a fallback
+        self.transcript_sub = self.create_subscription(
+            String, self.llm_prompt_topic, self._transcript_callback, 10
         )
 
         # Listen to LLM response containing JSON with "reply" and "actions"
@@ -187,6 +193,34 @@ class ActionDispatcherNode(Node):
             f'Action dispatcher node ready — language: {self.language}, '
             f'listening on llm_response and {self.detections_topic}'
         )
+
+    @staticmethod
+    def _is_vision_query(text: str) -> bool:
+        import re
+        t = text.strip().lower()
+        if not t or t.startswith('[vision]'):
+            return False
+        patterns = [
+            r'\bwhat\b.*\bsee\b',
+            r'\bwhat\b.*\bobjects?\b',
+            r'\bwhat\s+is\s+on\s+the\s+table\b',
+            r"\bwhat's\s+on\s+the\s+table\b",
+            r'\bdescribe\b.*\btable\b',
+            r'\blist\b.*\bobjects?\b',
+            r'\bmit\s+l[aá]tsz\b',
+            r'\bmiket\s+l[aá]tsz\b',
+            r'\bmilyen\s+t[aá]rgy',
+            r'\bmi\s+van\s+az\s+asztalon\b',
+            r'\bmit\s+l[aá]tni\b',
+        ]
+        return any(re.search(p, t) for p in patterns)
+
+    def _transcript_callback(self, msg: String):
+        text = msg.data.strip()
+        if text.upper().startswith('[VISION]'):
+            self._last_prompt_is_vision_request = False
+        else:
+            self._last_prompt_is_vision_request = self._is_vision_query(text)
 
     def _load_phrases(self) -> dict:
         """Load feedback phrases from YAML file, merging with defaults."""
@@ -350,6 +384,7 @@ class ActionDispatcherNode(Node):
         # non-empty actions (meaning tts_node deferred speaking), speak the reply here.
         if self._awaiting_vision_reply:
             self._awaiting_vision_reply = False
+            self._last_prompt_is_vision_request = False
             if isinstance(actions, list) and len(actions) > 0:
                 reply_text = str(data.get('reply', '')).strip()
                 if reply_text:
@@ -357,9 +392,18 @@ class ActionDispatcherNode(Node):
             return
 
         if not actions or not isinstance(actions, list):
+            if self._last_prompt_is_vision_request:
+                self._last_prompt_is_vision_request = False
+                self.get_logger().info(
+                    'Vision query detected via transcript fallback; speaking look-around phrase and querying [VISION]:'
+                )
+                self._speak_phrase('looking')
+                self._handle_list_objects()
+                return
             self.get_logger().info('No actions requested in this turn (conversational turn).')
             return
 
+        self._last_prompt_is_vision_request = False
         self.get_logger().info(f'Parsed {len(actions)} action(s) from LLM: {actions}')
 
         # Check if the user asked what objects the robot sees ('list_objects')

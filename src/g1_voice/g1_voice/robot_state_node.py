@@ -164,7 +164,7 @@ class RobotStateNode(Node):
     def _transcript_callback(self, msg: String):
         """Intercept transcript, enrich with robot state, forward to LLM."""
         transcript = msg.data.strip()
-        if not transcript:
+        if not transcript or transcript.upper().startswith('[VISION]'):
             return
 
         state_context = self._build_state_context()

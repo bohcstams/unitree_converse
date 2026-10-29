@@ -43,12 +43,15 @@ class TTSNode(Node):
         self.voice = None
         self.is_speaking = False
         self.speak_lock = threading.Lock()
+        self._last_prompt_is_vision_request = False
 
         if self.tts_mode == 'python':
             self._load_voice_python()
         else:
             self._check_binary()
 
+        self.transcript_sub = self.create_subscription(
+            String, '/g1/stt/transcript', self._transcript_callback, 10)
         self.response_sub = self.create_subscription(
             String, 'llm_response', self.response_callback, 10)
         self.say_sub = self.create_subscription(
@@ -60,6 +63,34 @@ class TTSNode(Node):
         self.trigger_pub = self.create_publisher(Bool, '/g1/voice/trigger', 10)
 
         self.get_logger().info(f'TTS node ready — mode: {self.tts_mode}, model: {self.model_path}')
+
+    @staticmethod
+    def _is_vision_query(text: str) -> bool:
+        import re
+        t = text.strip().lower()
+        if not t or t.startswith('[vision]'):
+            return False
+        patterns = [
+            r'\bwhat\b.*\bsee\b',
+            r'\bwhat\b.*\bobjects?\b',
+            r'\bwhat\s+is\s+on\s+the\s+table\b',
+            r"\bwhat's\s+on\s+the\s+table\b",
+            r'\bdescribe\b.*\btable\b',
+            r'\blist\b.*\bobjects?\b',
+            r'\bmit\s+l[aá]tsz\b',
+            r'\bmiket\s+l[aá]tsz\b',
+            r'\bmilyen\s+t[aá]rgy',
+            r'\bmi\s+van\s+az\s+asztalon\b',
+            r'\bmit\s+l[aá]tni\b',
+        ]
+        return any(re.search(p, t) for p in patterns)
+
+    def _transcript_callback(self, msg: String):
+        text = msg.data.strip()
+        if text.upper().startswith('[VISION]'):
+            self._last_prompt_is_vision_request = False
+        else:
+            self._last_prompt_is_vision_request = self._is_vision_query(text)
 
     def _load_voice_python(self):
         if not os.path.exists(self.model_path):
@@ -85,7 +116,12 @@ class TTSNode(Node):
             if isinstance(data, dict):
                 actions = data.get('actions', [])
                 if isinstance(actions, list) and len(actions) > 0:
+                    self._last_prompt_is_vision_request = False
                     self.get_logger().info('Action turn detected; deferring spoken feedback to action_dispatcher_node')
+                    return
+                if self._last_prompt_is_vision_request:
+                    self._last_prompt_is_vision_request = False
+                    self.get_logger().info('Vision query turn detected; deferring spoken feedback to action_dispatcher_node')
                     return
                 reply = data.get('reply', '').strip()
             else:
