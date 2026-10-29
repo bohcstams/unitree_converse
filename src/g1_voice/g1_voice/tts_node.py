@@ -188,26 +188,70 @@ class TTSNode(Node):
                 self.trigger_pub.publish(trigger)
                 self.get_logger().info('Continuous mode — auto-triggering next turn')
 
+    @staticmethod
+    def _split_sentences(text: str) -> list:
+        import re
+        raw_parts = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text.strip()) if s.strip()]
+        if len(raw_parts) <= 1:
+            return [text.strip()] if text.strip() else []
+        merged = []
+        buf = ''
+        for part in raw_parts:
+            buf = f'{buf} {part}' if buf else part
+            if len(buf) >= 12:
+                merged.append(buf)
+                buf = ''
+        if buf:
+            if merged:
+                merged[-1] = f'{merged[-1]} {buf}'
+            else:
+                merged.append(buf)
+        return merged
+
     def _speak_python(self, text: str):
         if self.voice is None:
             self.get_logger().error('No Python voice loaded')
             return
 
-        chunks = []
-        native_sr = self.voice.config.sample_rate
-        for audio_chunk in self.voice.synthesize(text):
-            chunks.append(audio_chunk.audio_float_array)
-
-        if not chunks:
-            self.get_logger().warn('Piper produced no audio')
+        sentences = self._split_sentences(text)
+        if not sentences:
             return
 
-        audio = np.concatenate(chunks).astype(np.float32)
-        audio = self._resample(audio, native_sr, self.output_sample_rate)
-        if audio.ndim == 1:
-            audio = np.column_stack((audio, audio))
-        sd.play(audio, self.output_sample_rate, device=self.output_device)
-        sd.wait()
+        native_sr = self.voice.config.sample_rate
+
+        def _synth_one(sent: str):
+            chunks = []
+            for audio_chunk in self.voice.synthesize(sent):
+                chunks.append(audio_chunk.audio_float_array)
+            if not chunks:
+                return None
+            audio = np.concatenate(chunks).astype(np.float32)
+            audio = self._resample(audio, native_sr, self.output_sample_rate)
+            if audio.ndim == 1:
+                audio = np.column_stack((audio, audio))
+            return audio
+
+        current_audio = _synth_one(sentences[0])
+        for idx in range(len(sentences)):
+            next_audio_box = [None]
+            bg_thread = None
+            if idx + 1 < len(sentences):
+                next_sent = sentences[idx + 1]
+                def _bg_worker(s=next_sent, box=next_audio_box):
+                    box[0] = _synth_one(s)
+                bg_thread = threading.Thread(target=_bg_worker, daemon=True)
+                bg_thread.start()
+
+            if current_audio is not None:
+                sd.play(current_audio, self.output_sample_rate, device=self.output_device)
+                sd.wait()
+            else:
+                self.get_logger().warn('Piper produced no audio for sentence')
+
+            if bg_thread is not None:
+                bg_thread.join()
+                current_audio = next_audio_box[0]
+
         self.get_logger().info('Playback complete')
 
     def _resolve_robot_interface(self) -> str:
@@ -242,6 +286,67 @@ class TTSNode(Node):
                 return path
         return self.tts_binary
 
+    def _resolve_model_path(self) -> str:
+        if os.path.isfile(self.model_path):
+            return self.model_path
+        fallback = os.path.join('/root/.local/share/piper', os.path.basename(self.model_path))
+        if os.path.isfile(fallback):
+            return fallback
+        return self.model_path
+
+    def _ensure_piper_hooks(self):
+        """Install lightweight wrappers for piper and sox so pre-synthesized WAVs skip re-synthesis even with an un-recompiled g1_piper_tts binary."""
+        try:
+            hook_dir = '/tmp/tts_hooks'
+            os.makedirs(hook_dir, exist_ok=True)
+            sox_hook = os.path.join(hook_dir, 'sox')
+            if not os.path.isfile(sox_hook):
+                with open(sox_hook, 'w') as f:
+                    f.write(
+                        '#!/bin/sh\n'
+                        'if [ -n "$G1_TTS_PREBUILT_WAV" ] && [ -f "$G1_TTS_PREBUILT_WAV" ]; then\n'
+                        '  cp -f "$G1_TTS_PREBUILT_WAV" /tmp/tts_16k.wav\n'
+                        '  exit 0\n'
+                        'fi\n'
+                        'exec /usr/bin/sox "$@"\n'
+                    )
+                os.chmod(sox_hook, 0o755)
+
+            piper_bin = '/usr/local/bin/piper'
+            piper_real = '/usr/local/bin/piper.real'
+            if os.path.isfile(piper_bin) and not os.path.isfile(piper_real):
+                os.rename(piper_bin, piper_real)
+                with open(piper_bin, 'w') as f:
+                    f.write(
+                        '#!/bin/sh\n'
+                        'if [ -n "$G1_TTS_PREBUILT_WAV" ] && [ -f "$G1_TTS_PREBUILT_WAV" ]; then\n'
+                        '  exit 0\n'
+                        'fi\n'
+                        'exec /usr/local/bin/piper.real "$@"\n'
+                    )
+                os.chmod(piper_bin, 0o755)
+        except Exception as e:
+            self.get_logger().debug(f'Could not set up piper hooks: {e}')
+
+    def _presynthesize_wav(self, sentence: str, out_wav: str, raw_wav: str) -> bool:
+        piper_exe = '/usr/local/bin/piper.real' if os.path.isfile('/usr/local/bin/piper.real') else self.piper_binary
+        model_path = self._resolve_model_path()
+        try:
+            res = subprocess.run(
+                [piper_exe, '--model', model_path, '--output_file', raw_wav],
+                input=sentence, capture_output=True, text=True, timeout=30
+            )
+            if res.returncode != 0:
+                return False
+            sox_exe = '/usr/bin/sox' if os.path.isfile('/usr/bin/sox') else 'sox'
+            res2 = subprocess.run(
+                [sox_exe, raw_wav, '-r', '16000', '-c', '1', '-b', '16', out_wav],
+                capture_output=True, text=True, timeout=15
+            )
+            return res2.returncode == 0 and os.path.isfile(out_wav)
+        except Exception:
+            return False
+
     def _speak_binary(self, text: str):
         iface = self._resolve_robot_interface()
         binary = self._resolve_tts_binary()
@@ -255,8 +360,8 @@ class TTSNode(Node):
         # bundled libddsc.so.0 / libddscxx.so.0 instead of ROS2 Humble's
         # /opt/ros/humble/lib/aarch64-linux-gnu/libddsc.so.0 (which causes
         # an ABI mismatch and 'free(): invalid pointer' crash).
-        env = os.environ.copy()
-        env.pop('CYCLONEDDS_URI', None)
+        base_env = os.environ.copy()
+        base_env.pop('CYCLONEDDS_URI', None)
 
         sdk_root = os.path.abspath(os.path.join(os.path.dirname(binary), '..', '..'))
         sdk_lib_dirs = [
@@ -269,15 +374,71 @@ class TTSNode(Node):
             '/usr/lib/aarch64-linux-gnu',
         ]
         existing_ld = [
-            p for p in env.get('LD_LIBRARY_PATH', '').split(':')
+            p for p in base_env.get('LD_LIBRARY_PATH', '').split(':')
             if p and '/opt/ros' not in p
         ]
-        env['LD_LIBRARY_PATH'] = ':'.join(sdk_lib_dirs + existing_ld)
+        base_env['LD_LIBRARY_PATH'] = ':'.join(sdk_lib_dirs + existing_ld)
 
-        result = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=60, env=env)
-        if result.returncode != 0:
-            self.get_logger().error(f'g1_piper_tts error (exit {result.returncode}): {result.stderr}')
+        sentences = self._split_sentences(text)
+        if len(sentences) <= 1:
+            result = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=60, env=base_env)
+            if result.returncode != 0:
+                self.get_logger().error(f'g1_piper_tts error (exit {result.returncode}): {result.stderr}')
+                return
+            self.get_logger().info('Playback complete')
             return
+
+        # Multi-sentence pipelining: synthesize and play sentence i while pre-synthesizing sentence i+1 in background
+        self._ensure_piper_hooks()
+        base_env['PATH'] = f"/tmp/tts_hooks:{base_env.get('PATH', '')}"
+
+        prebuilt_ready = False
+        prebuilt_path = ''
+
+        for idx, sent in enumerate(sentences):
+            next_ready_box = [False]
+            next_wav_path = f'/tmp/tts_prebuilt_{idx + 1}.wav'
+            next_raw_path = f'/tmp/tts_preraw_{idx + 1}.wav'
+            bg_thread = None
+
+            if idx + 1 < len(sentences):
+                next_sent = sentences[idx + 1]
+                delay = 0.35 if idx == 0 else 0.05
+
+                def _bg_presynth(s=next_sent, out_w=next_wav_path, raw_w=next_raw_path, d=delay, box=next_ready_box):
+                    import time
+                    if d > 0:
+                        time.sleep(d)
+                    box[0] = self._presynthesize_wav(s, out_w, raw_w)
+
+                bg_thread = threading.Thread(target=_bg_presynth, daemon=True)
+                bg_thread.start()
+
+            run_env = base_env.copy()
+            if idx > 0 and prebuilt_ready and os.path.isfile(prebuilt_path):
+                run_env['G1_TTS_PREBUILT_WAV'] = prebuilt_path
+            else:
+                run_env.pop('G1_TTS_PREBUILT_WAV', None)
+
+            result = subprocess.run(cmd, input=sent, capture_output=True, text=True, timeout=60, env=run_env)
+
+            if idx > 0 and prebuilt_path and os.path.isfile(prebuilt_path):
+                try:
+                    os.remove(prebuilt_path)
+                except OSError:
+                    pass
+
+            if result.returncode != 0:
+                self.get_logger().error(f'g1_piper_tts error on sentence {idx + 1} (exit {result.returncode}): {result.stderr}')
+                if bg_thread is not None:
+                    bg_thread.join(timeout=5)
+                return
+
+            if bg_thread is not None:
+                bg_thread.join()
+                prebuilt_ready = next_ready_box[0]
+                prebuilt_path = next_wav_path
+
         self.get_logger().info('Playback complete')
 
     def _continuous_start_cb(self, msg: Bool):

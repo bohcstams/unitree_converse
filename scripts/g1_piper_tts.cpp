@@ -34,42 +34,56 @@ int main(int argc, char const *argv[]) {
     return 0;
   }
 
-  // 2. Synthesize audio with Piper
-  std::string model_path = (argc >= 3) ? argv[2] : "/home/unitree/.local/share/piper/en_US-lessac-medium.onnx";
-  std::ifstream model_check(model_path);
-  if (!model_check.good()) {
-    // If not found directly, check /root/.local/share/piper with same basename
-    std::string filename = model_path.substr(model_path.find_last_of("/\\") + 1);
-    model_path = "/root/.local/share/piper/" + filename;
-  }
-
-  std::ifstream final_check(model_path);
-  if (!final_check.good()) {
-    std::cerr << "[g1_piper_tts] Voice model not found: " << model_path << std::endl;
-    return 1;
-  }
-
-  std::string safe_text;
-  for (char c : text) {
-    if (c == '"' || c == '\\' || c == '`' || c == '$') {
-      safe_text += '\\';
+  // 2. Check if a pre-synthesized 16kHz WAV was provided via G1_TTS_PREBUILT_WAV
+  const char* prebuilt_wav = std::getenv("G1_TTS_PREBUILT_WAV");
+  std::string wav_path = "/tmp/tts_16k.wav";
+  bool use_prebuilt = false;
+  if (prebuilt_wav != nullptr && prebuilt_wav[0] != '\0') {
+    std::ifstream prebuilt_check(prebuilt_wav);
+    if (prebuilt_check.good()) {
+      wav_path = prebuilt_wav;
+      use_prebuilt = true;
     }
-    safe_text += c;
   }
 
-  std::string piper_cmd = "echo \"" + safe_text + "\" | /usr/local/bin/piper --model \"" + model_path + "\" --output_file /tmp/tts_raw.wav";
-  int piper_ret = std::system(piper_cmd.c_str());
-  if (piper_ret != 0) {
-    std::cerr << "[g1_piper_tts] Piper synthesis failed (code: " << piper_ret << ")." << std::endl;
-    return 1;
-  }
+  if (!use_prebuilt) {
+    // Synthesize audio with Piper
+    std::string model_path = (argc >= 3) ? argv[2] : "/home/unitree/.local/share/piper/en_US-lessac-medium.onnx";
+    std::ifstream model_check(model_path);
+    if (!model_check.good()) {
+      // If not found directly, check /root/.local/share/piper with same basename
+      std::string filename = model_path.substr(model_path.find_last_of("/\\") + 1);
+      model_path = "/root/.local/share/piper/" + filename;
+    }
 
-  // 3. Convert raw wav to 16kHz mono 16-bit PCM wav using sox
-  std::string sox_cmd = "sox /tmp/tts_raw.wav -r 16000 -c 1 -b 16 /tmp/tts_16k.wav > /dev/null 2>&1";
-  int sox_ret = std::system(sox_cmd.c_str());
-  if (sox_ret != 0) {
-    std::cerr << "[g1_piper_tts] sox conversion failed." << std::endl;
-    return 1;
+    std::ifstream final_check(model_path);
+    if (!final_check.good()) {
+      std::cerr << "[g1_piper_tts] Voice model not found: " << model_path << std::endl;
+      return 1;
+    }
+
+    std::string safe_text;
+    for (char c : text) {
+      if (c == '"' || c == '\\' || c == '`' || c == '$') {
+        safe_text += '\\';
+      }
+      safe_text += c;
+    }
+
+    std::string piper_cmd = "echo \"" + safe_text + "\" | /usr/local/bin/piper --model \"" + model_path + "\" --output_file /tmp/tts_raw.wav";
+    int piper_ret = std::system(piper_cmd.c_str());
+    if (piper_ret != 0) {
+      std::cerr << "[g1_piper_tts] Piper synthesis failed (code: " << piper_ret << ")." << std::endl;
+      return 1;
+    }
+
+    // 3. Convert raw wav to 16kHz mono 16-bit PCM wav using sox
+    std::string sox_cmd = "sox /tmp/tts_raw.wav -r 16000 -c 1 -b 16 /tmp/tts_16k.wav > /dev/null 2>&1";
+    int sox_ret = std::system(sox_cmd.c_str());
+    if (sox_ret != 0) {
+      std::cerr << "[g1_piper_tts] sox conversion failed." << std::endl;
+      return 1;
+    }
   }
 
   // 4. Read converted wave
@@ -77,7 +91,7 @@ int main(int argc, char const *argv[]) {
   int8_t num_channels = 0;
   bool filestate = false;
   std::vector<uint8_t> pcm =
-      ReadWave("/tmp/tts_16k.wav", &sample_rate, &num_channels, &filestate);
+      ReadWave(wav_path.c_str(), &sample_rate, &num_channels, &filestate);
 
   if (!filestate || sample_rate != 16000 || num_channels != 1) {
     std::cerr << "[g1_piper_tts] Invalid audio format in /tmp/tts_16k.wav." << std::endl;
