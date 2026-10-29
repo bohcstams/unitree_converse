@@ -97,8 +97,9 @@ class TTSNode(Node):
             return
 
         import re
-        # Strip metadata tags like [ROBOT STATE], [/ROBOT STATE], etc.
+        # Strip metadata tags like [ROBOT STATE], [/ROBOT STATE], [VISION], etc.
         reply = re.sub(r'\[/?ROBOT STATE[^\]]*\]', '', reply, flags=re.IGNORECASE)
+        reply = re.sub(r'\[VISION\]:?\s*', '', reply, flags=re.IGNORECASE)
         reply = re.sub(r'\s+', ' ', reply).strip()
 
         if not reply:

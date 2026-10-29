@@ -11,6 +11,16 @@ import yaml
 
 
 DEFAULT_FALLBACK_PHRASES = {
+    'looking': {
+        'hu': [
+            'Máris körülnézek.',
+            'Hmm, hadd nézzem meg.',
+        ],
+        'en': [
+            'Hmm, let me take a look.',
+            'Let me take a look right away.',
+        ],
+    },
     'accepted': {
         'hu': [
             'Rendben, máris csinálom.',
@@ -66,6 +76,9 @@ DEFAULT_FALLBACK_PHRASES = {
 # Generic placement surfaces that do not require a specific YOLO object bounding box
 SURFACE_TARGETS = {'table', 'asztal', 'desk', 'surface'}
 
+# Actions that ask the robot to describe what objects it sees on the table
+LIST_OBJECT_ACTIONS = {'list_objects', 'look', 'describe', 'scan'}
+
 # Canonical object aliases so e.g. "box" matches "black_box" and "cup"/"glass" matches "glass_cup"
 TARGET_ALIASES = {
     'box': ['black_box', 'box'],
@@ -81,6 +94,8 @@ TARGET_ALIASES = {
     'paddle': ['ping_pong_paddle'],
     'ping_pong_paddle': ['ping_pong_paddle'],
     'headset': ['headset', 'headphones'],
+    'bottle': ['bottle'],
+    'phone': ['phone', 'cell_phone'],
 }
 
 
@@ -92,10 +107,14 @@ class ActionDispatcherNode(Node):
       - '/g1/action/status': completion/error status from the motion planner
 
     When an action command arrives:
-      1. Looks up the requested target object(s) in the latest vision detections.
-      2. If a required object is not visible, speaks "I can't find the object" /
+      1. If action is 'list_objects', speaks the initial look-around reply (e.g.
+         "Hmm, let me take a look" / "Máris körülnézek") and sends the currently
+         detected English object names to the LLM via '[VISION]: <objects>' so the
+         LLM generates a natural spoken sentence listing the visible objects.
+      2. Otherwise, looks up the requested target object(s) in the latest vision detections.
+      3. If a required object is not visible, speaks "I can't find the object" /
          "Sajnos nem találom a tárgyat" and aborts dispatch.
-      3. If found, speaks "Alright, I'll do it right away" / "Rendben, máris csinálom",
+      4. If found, speaks "Alright, I'll do it right away" / "Rendben, máris csinálom",
          enriches each action item with its 2D bounding box / vision metadata, and
          publishes the enriched plan to '/g1/action/commands' for the motion planner.
     """
@@ -112,12 +131,14 @@ class ActionDispatcherNode(Node):
         self.declare_parameter('language', 'hu')
         self.declare_parameter('phrases_file', default_phrases_file)
         self.declare_parameter('detections_topic', '/g1/vision/detections')
+        self.declare_parameter('llm_prompt_topic', '/g1/stt/transcript')
         self.declare_parameter('auto_listen_after_done', False)
         self.declare_parameter('simulate_execution_sec', 0.0)
 
         self.language = self.get_parameter('language').value
         self.phrases_file = self.get_parameter('phrases_file').value
         self.detections_topic = self.get_parameter('detections_topic').value
+        self.llm_prompt_topic = self.get_parameter('llm_prompt_topic').value
         self.auto_listen = self.get_parameter('auto_listen_after_done').value
         self.simulate_sec = self.get_parameter('simulate_execution_sec').value
 
@@ -130,6 +151,7 @@ class ActionDispatcherNode(Node):
         self._latest_frame_id = 'camera_color_optical_frame'
         self._latest_image_size = {'width': 640, 'height': 480}
         self._latest_vision_timestamp = None
+        self._awaiting_vision_reply = False
 
         # Subscribe to vision detections from g1_vision
         self.vision_sub = self.create_subscription(
@@ -151,6 +173,9 @@ class ActionDispatcherNode(Node):
 
         # Publish speech requests to TTS (speaks through robot head speaker)
         self.say_pub = self.create_publisher(String, '/g1/tts/say', 10)
+
+        # Publish follow-up [VISION]: prompts to the LLM node
+        self.llm_prompt_pub = self.create_publisher(String, self.llm_prompt_topic, 10)
 
         # Optional trigger to auto-activate microphone for next turn
         self.trigger_pub = self.create_publisher(Bool, '/g1/voice/trigger', 10)
@@ -204,6 +229,13 @@ class ActionDispatcherNode(Node):
 
         return DEFAULT_FALLBACK_PHRASES.get(category, {}).get(self.language, ["Alright."])[0]
 
+    def _speak_text(self, text: str):
+        """Publish an explicit sentence to /g1/tts/say."""
+        self.get_logger().info(f'Speaking ({self.language}): "{text}"')
+        say_msg = String()
+        say_msg.data = text
+        self.say_pub.publish(say_msg)
+
     def _speak_phrase(self, category: str):
         """Select a random phrase from category and publish it to /g1/tts/say."""
         phrase = self._get_random_phrase(category)
@@ -211,6 +243,37 @@ class ActionDispatcherNode(Node):
         say_msg = String()
         say_msg.data = phrase
         self.say_pub.publish(say_msg)
+
+    def _handle_list_objects(self):
+        """Collect unique detected object names and send a [VISION]: prompt to the LLM."""
+        with self._vision_lock:
+            detections = list(self._latest_detections)
+
+        seen_names = []
+        sorted_dets = sorted(
+            detections,
+            key=lambda d: float(d.get('confidence', 0.0)) if isinstance(d, dict) else 0.0,
+            reverse=True,
+        )
+        for det in sorted_dets:
+            if not isinstance(det, dict):
+                continue
+            name = str(det.get('name', '')).strip()
+            if name and name not in seen_names:
+                seen_names.append(name)
+
+        if seen_names:
+            vision_query = f"[VISION]: {', '.join(seen_names)}"
+        else:
+            vision_query = '[VISION]: none'
+
+        self._awaiting_vision_reply = True
+        prompt_msg = String()
+        prompt_msg.data = vision_query
+        self.llm_prompt_pub.publish(prompt_msg)
+        self.get_logger().info(
+            f'Sent detected objects to LLM ({self.llm_prompt_topic}): "{vision_query}"'
+        )
 
     def _vision_detections_callback(self, msg: String):
         """Store the latest object detections from /g1/vision/detections."""
@@ -281,11 +344,36 @@ class ActionDispatcherNode(Node):
             return
 
         actions = data.get('actions', [])
+
+        # Safeguard: if this response is the LLM's reply to our [VISION]: query,
+        # never trigger another action loop. If the LLM accidentally returned
+        # non-empty actions (meaning tts_node deferred speaking), speak the reply here.
+        if self._awaiting_vision_reply:
+            self._awaiting_vision_reply = False
+            if isinstance(actions, list) and len(actions) > 0:
+                reply_text = str(data.get('reply', '')).strip()
+                if reply_text:
+                    self._speak_text(reply_text)
+            return
+
         if not actions or not isinstance(actions, list):
             self.get_logger().info('No actions requested in this turn (conversational turn).')
             return
 
         self.get_logger().info(f'Parsed {len(actions)} action(s) from LLM: {actions}')
+
+        # Check if the user asked what objects the robot sees ('list_objects')
+        if any(
+            isinstance(s, dict) and str(s.get('action', '')).strip().lower() in LIST_OBJECT_ACTIONS
+            for s in actions
+        ):
+            reply_text = str(data.get('reply', '')).strip()
+            if reply_text:
+                self._speak_text(reply_text)
+            else:
+                self._speak_phrase('looking')
+            self._handle_list_objects()
+            return
 
         enriched_actions = []
         for step in actions:

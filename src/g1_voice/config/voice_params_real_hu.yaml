@@ -29,7 +29,7 @@
     compute_type: "float16"
     beam_size: 1
     cpu_threads: 4
-    initial_prompt: "Szia Máté! Kérlek vedd fel a bögrét, a poharat, a tollat vagy a fekete dobozt az asztalról."
+    initial_prompt: "Szia Máté! Mit látsz az asztalon? Kérlek vedd fel a bögrét, a poharat, a tollat vagy a fekete dobozt az asztalról."
     sample_rate: 16000
     recording_duration: 8.0
     silence_threshold: 0.008

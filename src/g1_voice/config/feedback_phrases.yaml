@@ -1,3 +1,11 @@
+looking:
+  hu:
+    - "Máris körülnézek."
+    - "Hmm, hadd nézzem meg."
+  en:
+    - "Hmm, let me take a look."
+    - "Let me take a look right away."
+
 accepted:
   hu:
     - "Rendben, máris csinálom."
