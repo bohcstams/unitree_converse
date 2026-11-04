@@ -2,7 +2,7 @@
   ros__parameters:
     api_url: "http://localhost:11434/v1"
     api_key: "no_key"
-    api_model: "qwen2.5:3b"
+    api_model: "qwen2.5:7b"
     system_prompt_file: "/root/ros2_ws/src/unitree_converse/src/g1_voice/config/system_prompt_hu.txt"
     system_prompt: "/root/ros2_ws/src/unitree_converse/src/g1_voice/config/system_prompt_hu.txt"
     temperature: 0.2

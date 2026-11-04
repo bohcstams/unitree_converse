@@ -203,9 +203,10 @@ class RobotStateNode(Node):
         out = String()
         if self._is_state_query(transcript):
             state_context = self._build_state_context()
-            out.data = f'{state_context}\nUser: {transcript}'
+            out.data = f'{state_context}\n{transcript}'
             self.prompt_pub.publish(out)
-            self.get_logger().info('Forwarded state-enriched prompt to LLM')
+            self.get_logger().info(
+                f'Forwarded state-enriched prompt to LLM (battery={self.battery_soc}%)')
         else:
             out.data = transcript
             self.prompt_pub.publish(out)
