@@ -206,6 +206,7 @@ class ActionDispatcherNode(Node):
         self._latest_frame_id = 'camera_color_optical_frame'
         self._latest_image_size = {'width': 640, 'height': 480}
         self._latest_vision_timestamp = None
+        self._latest_table_z_torso = None
         self._last_prompt_is_vision_request = False
 
         # Subscribe to vision detections from g1_vision
@@ -412,6 +413,7 @@ class ActionDispatcherNode(Node):
             self._latest_frame_id = data.get('frame_id', 'camera_color_optical_frame')
             self._latest_image_size = data.get('image_size', {'width': 640, 'height': 480})
             self._latest_vision_timestamp = data.get('timestamp')
+            self._latest_table_z_torso = data.get('table_z_torso')
 
     def _find_object_in_detections(self, target_name: str):
         """
@@ -529,6 +531,10 @@ class ActionDispatcherNode(Node):
             enriched_step['detection'] = matched_det
             enriched_step['frame_id'] = frame_id
             enriched_step['image_size'] = image_size
+            if 'depth_m' in matched_det:
+                enriched_step['depth_m'] = matched_det['depth_m']
+            if 'position_camera' in matched_det:
+                enriched_step['position_camera'] = matched_det['position_camera']
             if timestamp is not None:
                 enriched_step['vision_timestamp'] = timestamp
             enriched_actions.append(enriched_step)
