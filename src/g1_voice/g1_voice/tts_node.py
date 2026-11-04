@@ -122,7 +122,8 @@ class TTSNode(Node):
                         and str(a.get('action', '')).strip().lower() in ('list_objects', 'look', 'describe', 'scan')
                         for a in actions
                     )
-                    if not is_list_objects:
+                    is_hu = 'hu_' in os.path.basename(self.model_path).lower()
+                    if not (is_list_objects and is_hu):
                         self.get_logger().info('Action turn detected; deferring spoken feedback to action_dispatcher_node')
                         return
                 elif self._last_prompt_is_vision_request:

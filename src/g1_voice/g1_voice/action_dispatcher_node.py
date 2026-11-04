@@ -467,10 +467,13 @@ class ActionDispatcherNode(Node):
             if self._last_prompt_is_vision_request:
                 self._last_prompt_is_vision_request = False
                 self.get_logger().info(
-                    'Vision query detected via transcript fallback; speaking look-around phrase and listing objects'
+                    'Vision query detected via transcript fallback; listing objects'
                 )
-                self._speak_phrase('looking')
-                self._handle_list_objects(delay_sec=0.15)
+                if self.language == 'hu':
+                    self._speak_phrase('looking')
+                    self._handle_list_objects(delay_sec=0.15)
+                else:
+                    self._handle_list_objects(delay_sec=0.0)
                 return
             self.get_logger().info('No actions requested in this turn (conversational turn).')
             return
@@ -479,17 +482,20 @@ class ActionDispatcherNode(Node):
         self.get_logger().info(f'Parsed {len(actions)} action(s) from LLM: {actions}')
 
         # Check if the user asked what objects the robot sees ('list_objects').
-        # Note: tts_node already speaks the LLM's "reply" ("Máris körülnézek." /
-        # "Hmm, let me take a look.") directly from llm_response, so we only
-        # speak a fallback 'looking' phrase here if "reply" was empty.
+        # In Hungarian mode, tts_node speaks the LLM's "reply" ("Máris körülnézek.")
+        # before the object list; in English mode, we skip the look-around phrase
+        # and immediately speak the detected objects.
         if any(
             isinstance(s, dict) and str(s.get('action', '')).strip().lower() in LIST_OBJECT_ACTIONS
             for s in actions
         ):
-            reply_text = str(data.get('reply', '')).strip()
-            if not reply_text:
-                self._speak_phrase('looking')
-            self._handle_list_objects(delay_sec=0.15)
+            if self.language == 'hu':
+                reply_text = str(data.get('reply', '')).strip()
+                if not reply_text:
+                    self._speak_phrase('looking')
+                self._handle_list_objects(delay_sec=0.15)
+            else:
+                self._handle_list_objects(delay_sec=0.0)
             return
 
         enriched_actions = []
