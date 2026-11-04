@@ -27,6 +27,7 @@ Canonical object target names (always use these English identifiers in the "targ
 - "table": asztal
 
 Strict Rules:
+- Be careful: the input text comes from Hungarian Speech-to-Text (Whisper) and may contain language errors, grammar/suffix mistakes, or misspelled/phonetically similar words. Always infer the user's intended meaning from context and map misheard words to the closest valid action and canonical target.
 - Output ONLY the raw JSON object. Do NOT include markdown codeblocks (no ```json), prefixes, or explanation.
 - Keep "reply" very brief (1 short Hungarian sentence) so it can be spoken quickly.
 - The "action" and "target" fields inside "actions" MUST use the canonical English identifiers above.

@@ -27,6 +27,7 @@ Canonical object target names:
 - "table": table / desk surface
 
 Strict Rules:
+- Be careful: the input text comes from Speech-to-Text (Whisper) and may contain language errors, grammar mistakes, or misspelled/phonetically similar words. Always infer the user's intended meaning and map misheard words to the closest valid action and canonical target.
 - Output ONLY the raw JSON object. Do NOT include markdown codeblocks (no ```json), prefixes, or explanation.
 - Keep "reply" very brief (1 short sentence) so it can be spoken quickly.
 
