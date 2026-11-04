@@ -17,7 +17,7 @@ class TTSNode(Node):
         super().__init__('tts_node')
 
         self.declare_parameter('voice_model_path',
-            os.path.expanduser('~/.local/share/piper/en_US-lessac-medium.onnx'))
+            os.path.expanduser('~/.local/share/piper/en_US-ryan-medium.onnx'))
         self.declare_parameter('use_cuda', False)
         self.declare_parameter('output_device', -1)
         self.declare_parameter('continuous_mode', False)

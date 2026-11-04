@@ -45,7 +45,7 @@
 
 /tts_node:
   ros__parameters:
-    voice_model_path: "/home/unitree/.local/share/piper/en_US-lessac-medium.onnx"
+    voice_model_path: "/home/unitree/.local/share/piper/en_US-ryan-medium.onnx"
     continuous_mode: false
     use_cuda: false
     output_device: 25

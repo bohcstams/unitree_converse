@@ -89,6 +89,16 @@ services:
           fi;
         fi &&
         ldconfig &&
+        mkdir -p /root/.local/share/piper &&
+        mkdir -p /home/unitree/.local/share 2>/dev/null || true &&
+        if [ ! -e /home/unitree/.local/share/piper ]; then
+          ln -sfn /root/.local/share/piper /home/unitree/.local/share/piper 2>/dev/null || true;
+        fi &&
+        if [ ! -s /root/.local/share/piper/en_US-ryan-medium.onnx ]; then
+          echo 'Downloading English male Piper voice (en_US-ryan-medium)...' &&
+          curl -L -f -o /root/.local/share/piper/en_US-ryan-medium.onnx https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/en_US-ryan-medium.onnx &&
+          curl -L -f -o /root/.local/share/piper/en_US-ryan-medium.onnx.json https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/en_US-ryan-medium.onnx.json;
+        fi &&
         mkdir -p /root/ros2_ws/src/unitree_converse/wheels &&
         if ls /root/ros2_ws/src/unitree_converse/wheels/ctranslate2*cp310*.whl 1> /dev/null 2>&1; then
           echo 'Found cached Python 3.10 CUDA+cuDNN CTranslate2 wheel, installing...' &&

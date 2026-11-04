@@ -43,9 +43,9 @@ echo "[2/6] Downloading Piper voice model..."
 mkdir -p ~/.local/share/piper
 cd ~/.local/share/piper
 wget -q --show-progress \
-    https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx
+    https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/en_US-ryan-medium.onnx
 wget -q --show-progress \
-    https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+    https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/en_US-ryan-medium.onnx.json
 cd -
 
 # ── faster-whisper base model (both machines) ────────────────────

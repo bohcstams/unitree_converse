@@ -33,7 +33,7 @@
       select_key: "s"
 
     # --- TTS Node ---
-    voice_model_path: "/root/.local/share/piper/en_US-lessac-medium.onnx"
+    voice_model_path: "/root/.local/share/piper/en_US-ryan-medium.onnx"
     use_cuda: false
     output_device: -1
     output_sample_rate: 48000

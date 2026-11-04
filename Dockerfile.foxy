@@ -56,10 +56,10 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # Pre-cache faster-whisper base model (CPU int8) so it doesn't download at runtime
 RUN python3 -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
 
-# Download English Piper TTS voice model and config (en_US-lessac-medium)
+# Download English Piper TTS voice model and config (en_US-ryan-medium)
 RUN mkdir -p /root/.local/share/piper && cd /root/.local/share/piper && \
-    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx && \
-    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json && \
+    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/en_US-ryan-medium.onnx && \
+    curl -LO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/en_US-ryan-medium.onnx.json && \
     mkdir -p /home/unitree/.local/share && \
     ln -s /root/.local/share/piper /home/unitree/.local/share/piper
 

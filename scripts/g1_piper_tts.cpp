@@ -48,7 +48,7 @@ int main(int argc, char const *argv[]) {
 
   if (!use_prebuilt) {
     // Synthesize audio with Piper
-    std::string model_path = (argc >= 3) ? argv[2] : "/home/unitree/.local/share/piper/en_US-lessac-medium.onnx";
+    std::string model_path = (argc >= 3) ? argv[2] : "/home/unitree/.local/share/piper/en_US-ryan-medium.onnx";
     std::ifstream model_check(model_path);
     if (!model_check.good()) {
       // If not found directly, check /root/.local/share/piper with same basename
