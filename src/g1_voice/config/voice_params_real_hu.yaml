@@ -2,11 +2,11 @@
   ros__parameters:
     api_url: "http://localhost:11434/v1"
     api_key: "no_key"
-    api_model: "qwen2.5:7b"
+    api_model: "hf.co/mradermacher/PULI-Trio-Q-GGUF:Q4_K_M"
     system_prompt_file: "/root/ros2_ws/src/unitree_converse/src/g1_voice/config/system_prompt_hu.txt"
     system_prompt: "/root/ros2_ws/src/unitree_converse/src/g1_voice/config/system_prompt_hu.txt"
     temperature: 0.2
-    max_tokens: 70
+    max_tokens: 130
     max_history_length: 3
     response_format: '{"type": "json_object"}'
     stream: false
