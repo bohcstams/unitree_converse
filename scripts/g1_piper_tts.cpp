@@ -136,5 +136,6 @@ int main(int argc, char const *argv[]) {
 
   client.PlayStop("tts");
   std::cout << "[g1_piper_tts] Audio playback completed successfully." << std::endl;
-  return 0;
+  std::cout.flush();
+  std::_Exit(0);
 }

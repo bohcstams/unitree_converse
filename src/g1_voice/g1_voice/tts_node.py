@@ -26,6 +26,9 @@ class TTSNode(Node):
         self.declare_parameter('piper_binary', '/usr/local/bin/piper')
         self.declare_parameter('network_interface', '')
         self.declare_parameter('tts_binary', '/home/unitree/unitree_sdk2_latest/build/bin/g1_piper_tts')
+        self.declare_parameter('use_edge_tts', False)
+        self.declare_parameter('edge_tts_voice', 'hu-HU-TamasNeural')
+        self.declare_parameter('edge_tts_gain_db', 0.0)
 
         self.model_path = self.get_parameter('voice_model_path').get_parameter_value().string_value
         self.use_cuda = self.get_parameter('use_cuda').get_parameter_value().bool_value
@@ -35,6 +38,9 @@ class TTSNode(Node):
         self.piper_binary = self.get_parameter('piper_binary').get_parameter_value().string_value
         self.network_interface = self.get_parameter('network_interface').get_parameter_value().string_value
         self.tts_binary = self.get_parameter('tts_binary').get_parameter_value().string_value
+        self.use_edge_tts = self.get_parameter('use_edge_tts').get_parameter_value().bool_value
+        self.edge_tts_voice = self.get_parameter('edge_tts_voice').get_parameter_value().string_value
+        self.edge_tts_gain_db = self.get_parameter('edge_tts_gain_db').get_parameter_value().double_value
 
         if self.output_device == -1:
             self.output_device = self._resolve_default_output()
@@ -62,7 +68,12 @@ class TTSNode(Node):
         self.status_pub = self.create_publisher(String, '/g1/tts/status', 10)
         self.trigger_pub = self.create_publisher(Bool, '/g1/voice/trigger', 10)
 
-        self.get_logger().info(f'TTS node ready — mode: {self.tts_mode}, model: {self.model_path}')
+        if self.use_edge_tts:
+            self.get_logger().info(
+                f'TTS node ready — mode: {self.tts_mode}, engine: edge-tts ({self.edge_tts_voice}), fallback model: {self.model_path}'
+            )
+        else:
+            self.get_logger().info(f'TTS node ready — mode: {self.tts_mode}, model: {self.model_path}')
 
     @staticmethod
     def _is_vision_query(text: str) -> bool:
@@ -122,7 +133,10 @@ class TTSNode(Node):
                         and str(a.get('action', '')).strip().lower() in ('list_objects', 'look', 'describe', 'scan')
                         for a in actions
                     )
-                    is_hu = 'hu_' in os.path.basename(self.model_path).lower()
+                    is_hu = (
+                        'hu_' in os.path.basename(self.model_path).lower()
+                        or (self.use_edge_tts and 'hu-' in self.edge_tts_voice.lower())
+                    )
                     if not (is_list_objects and is_hu):
                         self.get_logger().info('Action turn detected; deferring spoken feedback to action_dispatcher_node')
                         return
@@ -209,8 +223,36 @@ class TTSNode(Node):
                 merged.append(buf)
         return merged
 
+    def _synthesize_edge_pcm(self, text: str):
+        """Synthesize 16kHz 16-bit mono PCM bytes using speech_out.py (edge-tts)."""
+        try:
+            try:
+                from g1_voice.speech_out import synthesize_pcm
+            except ImportError:
+                from speech_out import synthesize_pcm
+            return synthesize_pcm(text, voice=self.edge_tts_voice, gain_db=self.edge_tts_gain_db)
+        except Exception as e:
+            self.get_logger().warn(f'edge-tts (speech_out) synthesis failed, falling back to Piper: {e}')
+            return None
+
+    def _synthesize_edge_wav(self, text: str, out_wav: str) -> bool:
+        """Synthesize text via speech_out.py and save as a 16kHz mono 16-bit WAV file."""
+        pcm = self._synthesize_edge_pcm(text)
+        if not pcm:
+            return False
+        try:
+            with wave.open(out_wav, 'wb') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(16000)
+                wf.writeframes(pcm)
+            return os.path.isfile(out_wav)
+        except Exception as e:
+            self.get_logger().warn(f'Failed to write edge-tts WAV {out_wav}: {e}')
+            return False
+
     def _speak_python(self, text: str):
-        if self.voice is None:
+        if self.voice is None and not self.use_edge_tts:
             self.get_logger().error('No Python voice loaded')
             return
 
@@ -218,9 +260,19 @@ class TTSNode(Node):
         if not sentences:
             return
 
-        native_sr = self.voice.config.sample_rate
+        native_sr = self.voice.config.sample_rate if self.voice is not None else 16000
 
         def _synth_one(sent: str):
+            if self.use_edge_tts:
+                pcm = self._synthesize_edge_pcm(sent)
+                if pcm:
+                    audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+                    audio = self._resample(audio, 16000, self.output_sample_rate)
+                    if audio.ndim == 1:
+                        audio = np.column_stack((audio, audio))
+                    return audio
+            if self.voice is None:
+                return None
             chunks = []
             for audio_chunk in self.voice.synthesize(sent):
                 chunks.append(audio_chunk.audio_float_array)
@@ -247,7 +299,7 @@ class TTSNode(Node):
                 sd.play(current_audio, self.output_sample_rate, device=self.output_device)
                 sd.wait()
             else:
-                self.get_logger().warn('Piper produced no audio for sentence')
+                self.get_logger().warn('TTS produced no audio for sentence')
 
             if bg_thread is not None:
                 bg_thread.join()
@@ -330,6 +382,9 @@ class TTSNode(Node):
             self.get_logger().debug(f'Could not set up piper hooks: {e}')
 
     def _presynthesize_wav(self, sentence: str, out_wav: str, raw_wav: str) -> bool:
+        if self.use_edge_tts:
+            if self._synthesize_edge_wav(sentence, out_wav):
+                return True
         piper_exe = '/usr/local/bin/piper.real' if os.path.isfile('/usr/local/bin/piper.real') else self.piper_binary
         model_path = self._resolve_model_path()
         try:
@@ -381,20 +436,30 @@ class TTSNode(Node):
         base_env['LD_LIBRARY_PATH'] = ':'.join(sdk_lib_dirs + existing_ld)
 
         sentences = self._split_sentences(text)
-        if len(sentences) <= 1:
+        if not sentences:
+            return
+
+        if len(sentences) <= 1 and not self.use_edge_tts:
             result = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=60, env=base_env)
-            if result.returncode != 0:
+            playback_ok = result.returncode == 0 or 'Audio playback completed successfully' in (result.stdout or '')
+            if not playback_ok:
                 self.get_logger().error(f'g1_piper_tts error (exit {result.returncode}): {result.stderr}')
                 return
             self.get_logger().info('Playback complete')
             return
 
-        # Multi-sentence pipelining: synthesize and play sentence i while pre-synthesizing sentence i+1 in background
+        # Multi-sentence pipelining & edge-tts pre-synthesis via G1_TTS_PREBUILT_WAV
         self._ensure_piper_hooks()
         base_env['PATH'] = f"/tmp/tts_hooks:{base_env.get('PATH', '')}"
 
         prebuilt_ready = False
         prebuilt_path = ''
+        if self.use_edge_tts:
+            first_wav = '/tmp/tts_prebuilt_0.wav'
+            first_raw = '/tmp/tts_preraw_0.wav'
+            if self._presynthesize_wav(sentences[0], first_wav, first_raw):
+                prebuilt_ready = True
+                prebuilt_path = first_wav
 
         for idx, sent in enumerate(sentences):
             next_ready_box = [False]
@@ -404,7 +469,7 @@ class TTSNode(Node):
 
             if idx + 1 < len(sentences):
                 next_sent = sentences[idx + 1]
-                delay = 0.35 if idx == 0 else 0.05
+                delay = 0.05 if self.use_edge_tts else (0.35 if idx == 0 else 0.05)
 
                 def _bg_presynth(s=next_sent, out_w=next_wav_path, raw_w=next_raw_path, d=delay, box=next_ready_box):
                     import time
@@ -416,20 +481,21 @@ class TTSNode(Node):
                 bg_thread.start()
 
             run_env = base_env.copy()
-            if idx > 0 and prebuilt_ready and os.path.isfile(prebuilt_path):
+            if prebuilt_ready and os.path.isfile(prebuilt_path):
                 run_env['G1_TTS_PREBUILT_WAV'] = prebuilt_path
             else:
                 run_env.pop('G1_TTS_PREBUILT_WAV', None)
 
             result = subprocess.run(cmd, input=sent, capture_output=True, text=True, timeout=60, env=run_env)
 
-            if idx > 0 and prebuilt_path and os.path.isfile(prebuilt_path):
+            if prebuilt_path and os.path.isfile(prebuilt_path):
                 try:
                     os.remove(prebuilt_path)
                 except OSError:
                     pass
 
-            if result.returncode != 0:
+            playback_ok = result.returncode == 0 or 'Audio playback completed successfully' in (result.stdout or '')
+            if not playback_ok:
                 self.get_logger().error(f'g1_piper_tts error on sentence {idx + 1} (exit {result.returncode}): {result.stderr}')
                 if bg_thread is not None:
                     bg_thread.join(timeout=5)
@@ -439,6 +505,9 @@ class TTSNode(Node):
                 bg_thread.join()
                 prebuilt_ready = next_ready_box[0]
                 prebuilt_path = next_wav_path
+            else:
+                prebuilt_ready = False
+                prebuilt_path = ''
 
         self.get_logger().info('Playback complete')
 

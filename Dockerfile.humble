@@ -39,7 +39,9 @@ RUN python3 -m pip install --no-cache-dir \
     filelock \
     rich \
     prompt_toolkit \
-    piper-tts
+    piper-tts \
+    edge-tts \
+    miniaudio
 
 # Install Piper standalone binary (supports aarch64/Jetson and x86_64)
 RUN ARCH=$(dpkg --print-architecture) && \

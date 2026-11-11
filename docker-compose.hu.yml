@@ -133,6 +133,7 @@ services:
           rm -rf /tmp/ctranslate2_build &&
           echo 'CUDA+cuDNN CTranslate2 (cp310) build complete and saved to wheels/!';
         fi &&
+        python3 -c 'import edge_tts, miniaudio' 2>/dev/null || python3 -m pip install --no-cache-dir edge-tts miniaudio &&
         cd /root/ros2_ws &&
         colcon build --symlink-install &&
         source install/setup.bash &&
