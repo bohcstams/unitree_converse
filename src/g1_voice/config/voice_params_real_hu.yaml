@@ -2,11 +2,11 @@
   ros__parameters:
     api_url: "http://localhost:11434/v1"
     api_key: "no_key"
-    api_model: "gemma2:9b"
+    api_model: "qwen2.5:7b"
     system_prompt_file: "/root/ros2_ws/src/unitree_converse/src/g1_voice/config/system_prompt_hu.txt"
     system_prompt: "/root/ros2_ws/src/unitree_converse/src/g1_voice/config/system_prompt_hu.txt"
     temperature: 0.2
-    max_tokens: 130
+    max_tokens: 150
     max_history_length: 3
     response_format: '{"type": "json_object"}'
     stream: false
@@ -29,7 +29,7 @@
     compute_type: "float16"
     beam_size: 1
     cpu_threads: 4
-    initial_prompt: "Szia Máté! Mit látsz az asztalon? Kérlek vedd fel a bögrét, a poharat, a tollat vagy a fekete dobozt az asztalról."
+    initial_prompt: "Szia Máté! Hogy hívnak? Mutatkozz be, kérlek! Mesélj magadról! Mondj egy viccet! Mit látsz az asztalon? Hány százalékon van az akkumulátorod? Kérlek vedd fel vagy mutass a bögrére, a pohárra, a tollra vagy a fekete dobozra."
     sample_rate: 16000
     recording_duration: 8.0
     silence_threshold: 0.008
