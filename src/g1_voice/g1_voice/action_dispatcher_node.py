@@ -133,6 +133,12 @@ SURFACE_TARGETS = {'table', 'asztal', 'desk', 'surface'}
 # Actions that ask the robot to describe what objects it sees on the table
 LIST_OBJECT_ACTIONS = {'list_objects', 'look', 'describe', 'scan'}
 
+# Manipulation actions that require a physical target object detection
+OBJECT_ACTIONS = {'pick', 'point', 'grasp', 'grab', 'move'}
+
+# Pronouns / empty targets (e.g. "point at it", "mutass rá") resolved to the visible object
+IMPLICIT_TARGETS = {'', 'it', 'that', 'this', 'object', 'the_object', 'azt', 'rá', 'ra', 'tárgy', 'targy'}
+
 # Canonical object aliases so e.g. "box" matches "black_box" and "cup"/"glass" matches "glass_cup"
 TARGET_ALIASES = {
     'box': ['black_box', 'box'],
@@ -208,6 +214,8 @@ class ActionDispatcherNode(Node):
         self._latest_vision_timestamp = None
         self._latest_table_z_torso = None
         self._last_prompt_is_vision_request = False
+        self._last_transcript = ''
+        self._last_listed_objects = []
 
         # Subscribe to vision detections from g1_vision
         self.vision_sub = self.create_subscription(
@@ -269,6 +277,7 @@ class ActionDispatcherNode(Node):
 
     def _transcript_callback(self, msg: String):
         text = msg.data.strip()
+        self._last_transcript = text
         self._last_prompt_is_vision_request = self._is_vision_query(text)
 
     def _load_phrases(self) -> dict:
@@ -382,6 +391,7 @@ class ActionDispatcherNode(Node):
             if name and name not in seen_names:
                 seen_names.append(name)
 
+        self._last_listed_objects = list(seen_names)
         sentence = self._build_seen_objects_sentence(seen_names)
         self.get_logger().info(
             f'Detected objects {seen_names} -> speaking ({self.language}): "{sentence}"'
@@ -453,6 +463,50 @@ class ActionDispatcherNode(Node):
 
         return None, frame_id, image_size, timestamp
 
+    def _resolve_implicit_object_detection(self):
+        """
+        Resolve an empty or pronoun target (e.g. "point at it", "mutass rá") to a
+        currently visible detection:
+          1. Check if the latest user transcript mentions any known object keyword.
+          2. Otherwise prefer the last listed object if still visible.
+          3. Otherwise pick the highest-confidence currently visible detection.
+        """
+        transcript = self._last_transcript.lower()
+        transcript_hints = {
+            'mug': ('mug', 'bögr', 'bogr', 'csész', 'csesz'),
+            'glass_cup': ('glass', 'cup', 'pohár', 'pohar'),
+            'black_box': ('box', 'doboz'),
+            'pen': ('pen', 'toll'),
+            'sunglasses': ('sunglass', 'glasses', 'szemüveg', 'szemuveg'),
+            'rubiks_cube': ('cube', 'kock'),
+            'ping_pong_paddle': ('paddle', 'ping', 'ütő', 'uto'),
+            'headset': ('headset', 'headphone', 'fejhallgat'),
+            'bottle': ('bottle', 'palack', 'üveg', 'uveg'),
+            'phone': ('phone', 'telefon'),
+        }
+        for canonical, keywords in transcript_hints.items():
+            if any(kw in transcript for kw in keywords):
+                det, frame_id, image_size, ts = self._find_object_in_detections(canonical)
+                if det is not None:
+                    return det, frame_id, image_size, ts
+
+        for listed_name in self._last_listed_objects:
+            det, frame_id, image_size, ts = self._find_object_in_detections(listed_name)
+            if det is not None:
+                return det, frame_id, image_size, ts
+
+        with self._vision_lock:
+            detections = [d for d in self._latest_detections if isinstance(d, dict)]
+            frame_id = self._latest_frame_id
+            image_size = dict(self._latest_image_size)
+            timestamp = self._latest_vision_timestamp
+
+        if detections:
+            best = max(detections, key=lambda d: float(d.get('confidence', 0.0)))
+            return best, frame_id, image_size, timestamp
+
+        return None, frame_id, image_size, timestamp
+
     def _llm_response_callback(self, msg: String):
         try:
             data = json.loads(msg.data)
@@ -483,10 +537,6 @@ class ActionDispatcherNode(Node):
         self._last_prompt_is_vision_request = False
         self.get_logger().info(f'Parsed {len(actions)} action(s) from LLM: {actions}')
 
-        # Check if the user asked what objects the robot sees ('list_objects').
-        # In Hungarian mode, tts_node speaks the LLM's "reply" ("Máris körülnézek.")
-        # before the object list; in English mode, we skip the look-around phrase
-        # and immediately speak the detected objects.
         if any(
             isinstance(s, dict) and str(s.get('action', '')).strip().lower() in LIST_OBJECT_ACTIONS
             for s in actions
@@ -510,13 +560,23 @@ class ActionDispatcherNode(Node):
 
             enriched_step = dict(step)
 
-            # Generic surfaces like "table" do not require a YOLO object bounding box
-            if not norm_target or norm_target in SURFACE_TARGETS:
+            # Generic placement surfaces (e.g. "place on table") do not require a YOLO object bbox
+            if norm_target in SURFACE_TARGETS or (not norm_target and action_type not in OBJECT_ACTIONS):
                 enriched_step['target_type'] = 'surface'
                 enriched_actions.append(enriched_step)
                 continue
 
-            matched_det, frame_id, image_size, timestamp = self._find_object_in_detections(norm_target)
+            if action_type in OBJECT_ACTIONS and norm_target in IMPLICIT_TARGETS:
+                matched_det, frame_id, image_size, timestamp = self._resolve_implicit_object_detection()
+                if matched_det is not None:
+                    resolved_name = str(matched_det.get('name', 'object'))
+                    enriched_step['target'] = resolved_name
+                    self.get_logger().info(
+                        f'Resolved implicit target "{target}" for "{action_type}" -> "{resolved_name}"'
+                    )
+            else:
+                matched_det, frame_id, image_size, timestamp = self._find_object_in_detections(norm_target)
+
             if matched_det is None:
                 with self._vision_lock:
                     visible_names = [d.get('name') for d in self._latest_detections if isinstance(d, dict)]
