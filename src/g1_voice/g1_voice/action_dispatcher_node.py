@@ -550,15 +550,30 @@ class ActionDispatcherNode(Node):
                 self._handle_list_objects(delay_sec=0.0)
             return
 
+        transcript_low = self._last_transcript.strip().lower()
+        is_explicit_point = any(
+            kw in transcript_low for kw in ('point', 'mutass', 'mutasd', 'rámutat', 'ramutat')
+        )
+        is_explicit_pick = any(
+            kw in transcript_low
+            for kw in ('pick', 'grab', 'grasp', 'lift', 'vedd fel', 'fogd meg', 'emeld fel', 'vegyél', 'vegyel')
+        )
+
         enriched_actions = []
         for step in actions:
             if not isinstance(step, dict):
                 continue
             action_type = str(step.get('action', '')).strip().lower()
+            if action_type in ('pick', 'point', 'grasp', 'grab'):
+                if is_explicit_point and not is_explicit_pick:
+                    action_type = 'point'
+                elif is_explicit_pick and not is_explicit_point and action_type == 'point':
+                    action_type = 'pick'
             target = str(step.get('target', '')).strip()
             norm_target = target.lower().replace(' ', '_')
 
             enriched_step = dict(step)
+            enriched_step['action'] = action_type
 
             # Generic placement surfaces (e.g. "place on table") do not require a YOLO object bbox
             if norm_target in SURFACE_TARGETS or (not norm_target and action_type not in OBJECT_ACTIONS):
@@ -591,10 +606,9 @@ class ActionDispatcherNode(Node):
             enriched_step['detection'] = matched_det
             enriched_step['frame_id'] = frame_id
             enriched_step['image_size'] = image_size
-            if 'depth_m' in matched_det:
-                enriched_step['depth_m'] = matched_det['depth_m']
-            if 'position_camera' in matched_det:
-                enriched_step['position_camera'] = matched_det['position_camera']
+            for key in ('depth_m', 'position_camera', 'object_width_m', 'object_height_m', 'bbox_width_3d_m', 'width_source'):
+                if key in matched_det:
+                    enriched_step[key] = matched_det[key]
             if timestamp is not None:
                 enriched_step['vision_timestamp'] = timestamp
             enriched_actions.append(enriched_step)
