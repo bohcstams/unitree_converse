@@ -34,6 +34,7 @@ Canonical object target names:
 - "glass_cup": cup / glass / drinking glass
 - "black_box": box / black box
 - "pen": pen
+- "bottle": bottle, plastic bottle
 - "table": table / desk surface
 
 Strict Rules:

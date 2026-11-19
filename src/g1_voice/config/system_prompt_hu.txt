@@ -38,6 +38,7 @@ Valid action types and target names:
 
 Canonical object target names (always use these English identifiers in the "target" field):
 - "mug": bögre / csésze
+- "bottle": üveg / műanyag üveg
 - "glass_cup": pohár / üvegpohár
 - "black_box": doboz / fekete doboz
 - "pen": toll / golyóstoll
