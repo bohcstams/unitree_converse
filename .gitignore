@@ -22,3 +22,9 @@ __pycache__/
 *.onnx
 *.onnx.json
 .cache/
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+!.env.template

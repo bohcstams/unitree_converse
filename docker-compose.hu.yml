@@ -18,6 +18,7 @@ services:
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
       - 'CYCLONEDDS_URI=<CycloneDDS><Domain><General><Interfaces><NetworkInterface name="enP8p1s0"/></Interfaces></General></Domain></CycloneDDS>'
       - LLM_API_MODEL=qwen2.5:7b
+      - LLM_API_KEY=${LLM_API_KEY:-no_key}
       - PYTHONUNBUFFERED=1
       - PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/aarch64-linux/lib:/usr/local/lib:/usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu
@@ -138,5 +139,5 @@ services:
         colcon build --symlink-install &&
         source install/setup.bash &&
         echo 'Starting Hungarian unitree_converse voice pipeline on robot (interface: enP8p1s0)...' &&
-        ros2 launch g1_voice voice_real.launch.py params_file:=/root/ros2_ws/install/g1_voice/share/g1_voice/config/voice_params_real_hu.yaml
+        ros2 launch g1_voice voice_real.launch.py params_file:=${VOICE_PARAMS_FILE:-/root/ros2_ws/install/g1_voice/share/g1_voice/config/voice_params_real_hu.yaml}
       "
