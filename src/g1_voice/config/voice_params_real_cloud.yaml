@@ -2,7 +2,7 @@
   ros__parameters:
     api_url: "https://generativelanguage.googleapis.com/v1beta/openai"
     # api_key is intentionally omitted so ROS2 uses the LLM_API_KEY env var from .env
-    api_model: "gemini-2.5-flash-lite"
+    api_model: "gemini-3.5-flash-lite"
     api_timeout: 15.0
     system_prompt_file: "/root/ros2_ws/src/unitree_converse/src/g1_voice/config/system_prompt_en.txt"
     system_prompt: "/root/ros2_ws/src/unitree_converse/src/g1_voice/config/system_prompt_en.txt"
