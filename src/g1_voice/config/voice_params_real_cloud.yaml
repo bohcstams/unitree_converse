@@ -1,0 +1,55 @@
+/llm_node:
+  ros__parameters:
+    api_url: "https://generativelanguage.googleapis.com/v1beta/openai"
+    # api_key is intentionally omitted so ROS2 uses the LLM_API_KEY env var from .env
+    api_model: "gemini-2.5-flash-lite"
+    api_timeout: 15.0
+    system_prompt_file: "/root/ros2_ws/src/unitree_converse/src/g1_voice/config/system_prompt_en.txt"
+    system_prompt: "/root/ros2_ws/src/unitree_converse/src/g1_voice/config/system_prompt_en.txt"
+    temperature: 0.2
+    max_tokens: 70
+    max_history_length: 3
+    response_format: '{"type": "json_object"}'
+    stream: false
+
+/action_dispatcher_node:
+  ros__parameters:
+    language: "en"
+    auto_listen_after_done: false
+
+/stt_node:
+  ros__parameters:
+    use_udp_mic: true
+    continuous_mode: false
+    udp_multicast_group: "239.168.123.161"
+    udp_port: 5555
+    udp_local_ip: "192.168.123.164"
+    model_size: "base"
+    language: "en"
+    device: "cuda"
+    compute_type: "float16"
+    beam_size: 1
+    sample_rate: 16000
+    recording_duration: 8.0
+    silence_threshold: 0.008
+    silence_duration: 2.0
+
+/wake_word_node:
+  ros__parameters:
+    wake_word_model: "hey_jarvis"
+    detection_threshold: 0.5
+    sample_rate: 16000
+    chunk_duration: 0.08
+    use_wake_word: false
+    use_select_button: false
+    select_key: "s"
+
+/tts_node:
+  ros__parameters:
+    voice_model_path: "/home/unitree/.local/share/piper/en_US-ryan-medium.onnx"
+    continuous_mode: false
+    use_cuda: false
+    output_device: 25
+    output_sample_rate: 44100
+    tts_mode: "binary"
+    piper_binary: "/usr/local/bin/piper"
