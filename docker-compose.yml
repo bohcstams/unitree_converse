@@ -100,7 +100,7 @@ services:
           curl -L -f -o /root/.local/share/piper/en_US-ryan-medium.onnx https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/en_US-ryan-medium.onnx &&
           curl -L -f -o /root/.local/share/piper/en_US-ryan-medium.onnx.json https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/en_US-ryan-medium.onnx.json;
         fi &&
-        python3 -c "import json; p='/root/.local/share/piper/en_US-ryan-medium.onnx.json'; d=json.load(open(p)); m=d.get('phoneme_id_map',{}); bad=[k for k in m if len(k)>1]; (d.__setitem__('phoneme_id_map',{k:v for k,v in m.items() if len(k)==1}), json.dump(d,open(p,'w'),ensure_ascii=False)) if bad else None" &&
+        python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); m=d.get(\"phoneme_id_map\",{}); bad=[k for k in m if len(k)>1]; bad and (d.__setitem__(\"phoneme_id_map\",{k:v for k,v in m.items() if len(k)==1}), json.dump(d,open(p,\"w\"),ensure_ascii=False))' /root/.local/share/piper/en_US-ryan-medium.onnx.json &&
         mkdir -p /root/ros2_ws/src/unitree_converse/wheels &&
         if ls /root/ros2_ws/src/unitree_converse/wheels/ctranslate2*cp310*.whl 1> /dev/null 2>&1; then
           echo 'Found cached Python 3.10 CUDA+cuDNN CTranslate2 wheel, installing...' &&
